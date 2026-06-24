@@ -35,13 +35,15 @@ Compile
 
 1. Install `Terminus` font, or other truly bitmap `.bdf`/`.pcf` fonts. Note that Terminus can be named `Terminus` on one system, and `xos4 Terminus` on another, so **correct the font name at our C code first**. Use 'fc-list | grep erminus' to check. As Terminus package brings `.otb` versions also, be sure to delete these.
 
-2. Install Chicago95 theme; we need icons only from it. Then correct icons path at C code.
+2. Use both `qt5ct` and `qt6ct` to select `(xos4) Terminus`, then check system-wide effects on Qt software like LXQt itself. Note that one should have `QT_QPA_PLATFORMTHEME=qt_ct` at `/etc/environment`. Btw, note that this exactly font **does not exist** at GTK's programs font selection menus.
 
-3. Replace `PyQt6` to `PyQt5` if need. Install the toolkit:
+3. Install Chicago95 theme; we need icons only from it. Then correct icons path at C code.
+
+4. Replace `PyQt6` to `PyQt5` if need. Install the toolkit:
 
     pacman -S python-pyqt_
 
-4. Install other requirements. For `wnck`, it differs for GTK2 and GTK3:
+5. Install other requirements. For `wnck`, it differs for GTK2 and GTK3:
 
     yay -S libwnck
 
@@ -49,7 +51,7 @@ or
 
     pacman -S libwnck3
 
-5. Compile:
+6. Compile:
 
     gcc -Wall -Wno-unused-result -lX11 -I/usr/include/compiz/ -ldecoration -I/usr/include/libwnck-1.0/ -lwnck-1 -I/usr/include/python3.14 -lpython3.14 `pkg-config --cflags --libs gtk+-2.0` simple.c -o simple
 
