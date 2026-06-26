@@ -22,7 +22,9 @@ At other side, we have Qt. It is rock solid thing so far. The original DE comes 
 
 > Example: Use `qt5ct` (`qt6ct`, depends on your `QT_QPA_PLATFORMTHEME`), select **`Darker` theme**, start `Dolphin`, switch to List mode (`Ctrl+3`). This was reported multiple times, but nobody cares so far. There are myriads of bugs with dark themes. These bugs are blocking errors, when we care about eyes health.
 
-Btw, we then use _white_ themes, as they're _only_ themes without incorrectly colored elements; then we just invert it all. Note that inversion is per-window, of course, as we don't want videos or photos, or correctly written programs like **Carla**, to be inverted.
+We then use _white_ themes, as they're _only_ themes without incorrectly colored elements; then we just invert it all. Note that inversion is per-window, of course, as we don't want videos or photos, or correctly written programs like **Carla**, to be inverted.
+
+The only working solution for per-window inversion, and without color damage like just RGB inversion, is `Compiz`.
 
 The problem with `LXQT` is that it, as it's whole Qt base, is C++ but not C. There is no chances to fix something, or even introduce own applets. Those who can C++, are quite expensive and not have time for FOSS mostly. (Please show me that I am whong here). Well, let's try to use LXQT.
 
