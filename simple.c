@@ -45,9 +45,7 @@ typedef struct _decor
 {
     void    (*draw) (struct _decor *d);
     XID              prop_xid;
-    Window           event_window;
-    int              width;
-    int              height;
+    Window           titlebar_window; /* For mouse events */
     int              client_width;
     int              client_height;
     int              decorated;
@@ -64,8 +62,6 @@ typedef struct _decor
     cairo_surface_t *p_active_buffer_surface;
     cairo_surface_t *p_inactive_surface;
     cairo_surface_t *p_inactive_buffer_surface;
-    cairo_surface_t *decor_normal_surface;
-    cairo_surface_t *decor_active_surface;
 } decor_t;
 
 static Atom frame_window_atom;
@@ -101,10 +97,7 @@ static cairo_surface_t *create_surface(int w, int h, int isImageOrXlib)
 {
     cairo_surface_t *surface;
 
-    if (w < 0 || h < 0)
-        abort();       /* What it means? */
-
-    if (w == 0 || h == 0)
+    if (w <= 0 || h <= 0)
         return NULL;
 
     if (isImageOrXlib) /* Xlib */
@@ -138,123 +131,84 @@ static gboolean destroy_surface_idled(gpointer data)
     return FALSE;
 }
 
-static int my_add_quad_row(decor_quad_t * q, int width, int ypush, int vgrav, int x0, int y0)
+static int my_set_window_quads(decor_quad_t * q, int width)
 {
-    int p1y = (vgrav == GRAVITY_NORTH) ? -ypush : 0;
-    int p2y = (vgrav == GRAVITY_NORTH) ? 0 : ypush;
+#define XXXYYYYX { q->m.xx = 1; q->m.xy = 0; q->m.yy = 1; q->m.yx = 0; }
 
-    int fwidth = width - (BORDER + BORDER);
+#define my_add_quad_row(width, ypush, vgrav, X0, Y0) { \
+        int p1y = (vgrav == GRAVITY_NORTH) ? -ypush : 0; \
+        int p2y = (vgrav == GRAVITY_NORTH) ? 0 : ypush; \
+        q->p1.x = -BORDER; \
+        q->p1.y = p1y; \
+        q->p1.gravity = vgrav | GRAVITY_WEST; \
+        q->p2.x = 0; \
+        q->p2.y = p2y; \
+        q->p2.gravity = vgrav | GRAVITY_WEST; \
+        q->align = 0; \
+        q->clamp = 0; \
+        q->stretch = 0; \
+        q->max_width = BORDER; \
+        q->max_height = ypush; \
+        q->m.x0 = X0; \
+        q->m.y0 = Y0; \
+        XXXYYYYX; \
+        q++; \
+        q->p1.x = 0; \
+        q->p1.y = p1y; \
+        q->p1.gravity = vgrav | GRAVITY_WEST; \
+        q->p2.x = 0; \
+        q->p2.y = p2y; \
+        q->p2.gravity = vgrav | GRAVITY_EAST; \
+        q->align = ALIGN_LEFT | ALIGN_TOP; \
+        q->clamp = 0; \
+        q->stretch = STRETCH_X; \
+        q->max_width = width; \
+        q->max_height = ypush; \
+        q->m.x0 = X0 + BORDER; \
+        q->m.y0 = Y0; \
+        XXXYYYYX; \
+        q++; \
+        q->p1.x = 0; \
+        q->p1.y = p1y; \
+        q->p1.gravity = vgrav | GRAVITY_EAST; \
+        q->p2.x = BORDER; \
+        q->p2.y = p2y; \
+        q->p2.gravity = vgrav | GRAVITY_EAST; \
+        q->max_width = BORDER; \
+        q->max_height = ypush; \
+        q->align = 0; \
+        q->clamp = 0; \
+        q->stretch = 0; \
+        q->m.x0 = X0 + BORDER + width; \
+        q->m.y0 = Y0; \
+        XXXYYYYX; \
+        q++; }
 
-    q->p1.x = -BORDER;
-    q->p1.y = p1y;        /* opt: never changes */
-    q->p1.gravity = vgrav | GRAVITY_WEST;
-    q->p2.x = 0;
-    q->p2.y = p2y;
-    q->p2.gravity = vgrav | GRAVITY_WEST;
-    q->align = 0;       /* opt: never changes */
-    q->clamp = 0;
-    q->stretch = 0;
-    q->max_width = BORDER;
-    q->max_height = ypush;      /* opt: never changes */
-    q->m.x0 = x0;
-    q->m.y0 = y0;       /* opt: never changes */
-    q->m.xx = 1;        /* opt: never changes */
-    q->m.xy = 0;
-    q->m.yy = 1;
-    q->m.yx = 0;        /* opt: never changes */
+#define my_add_quad_col(height, xpush, hgrav, X0, Y0) { \
+        int p1x = (hgrav == GRAVITY_WEST) ? -xpush : 0; \
+        int p2x = (hgrav == GRAVITY_WEST) ? 0 : xpush; \
+        q->p1.x = p1x; \
+        q->p1.y = 0; \
+        q->p1.gravity = GRAVITY_NORTH | hgrav; \
+        q->p2.x = p2x; \
+        q->p2.y = 0; \
+        q->p2.gravity = GRAVITY_SOUTH | hgrav; \
+        q->max_width = xpush; \
+        q->max_height = height; \
+        q->align = 0; \
+        q->clamp = CLAMP_VERT; \
+        q->stretch = STRETCH_Y; \
+        q->m.x0 = X0; \
+        q->m.y0 = Y0; \
+        XXXYYYYX; \
+        q++; }
 
-    q++;
+    my_add_quad_row(width, (TITLE_H + BORDER), GRAVITY_NORTH, 0, 0);
+    my_add_quad_row(width, BORDER, GRAVITY_SOUTH, 0, (TITLE_H + BORDER));
+    my_add_quad_col((TITLE_H + BORDER*2), BORDER, GRAVITY_WEST, 0, (BORDER + TITLE_H));
+    my_add_quad_col((TITLE_H + BORDER*2), BORDER, GRAVITY_EAST, (width + BORDER), (BORDER + TITLE_H));
 
-    q->p1.x = 0;
-    q->p1.y = p1y;
-    q->p1.gravity = vgrav | GRAVITY_WEST;
-    q->p2.x = 0;
-    q->p2.y = p2y;
-    q->p2.gravity = vgrav | GRAVITY_EAST;
-    q->align = ALIGN_LEFT | ALIGN_TOP;
-    q->clamp = 0;
-    q->stretch = STRETCH_X;
-    q->max_width = fwidth;
-    q->max_height = ypush;
-    q->m.x0 = x0 + BORDER;
-    q->m.y0 = y0;
-    q->m.xx = 1;
-    q->m.xy = 0;
-    q->m.yy = 1;
-    q->m.yx = 0;
-
-    q++;
-
-    q->p1.x = 0;
-    q->p1.y = p1y;
-    q->p1.gravity = vgrav | GRAVITY_EAST;
-    q->p2.x = BORDER;
-    q->p2.y = p2y;
-    q->p2.gravity = vgrav | GRAVITY_EAST;
-    q->max_width = BORDER;
-    q->max_height = ypush;
-    q->align = 0;
-    q->clamp = 0;
-    q->stretch = 0;
-    q->m.x0 = x0 + BORDER + fwidth;
-    q->m.y0 = y0;
-    q->m.xx = 1;
-    q->m.yy = 1;
-    q->m.xy = 0;
-    q->m.yx = 0;
-
-    return 3;
-}
-static int my_add_quad_col(decor_quad_t * q, int height, int xpush, int hgrav, int x0, int y0)
-{
-    int p1x = (hgrav == GRAVITY_WEST) ? -xpush : 0;
-    int p2x = (hgrav == GRAVITY_WEST) ? 0 : xpush;
-
-    q->p1.x = p1x;
-    q->p1.y = 0;
-    q->p1.gravity = GRAVITY_NORTH | hgrav;
-    q->p2.x = p2x;
-    q->p2.y = 0;
-    q->p2.gravity = GRAVITY_SOUTH | hgrav;
-    q->max_width = xpush;
-    q->max_height = height;
-    q->align = 0;
-    q->clamp = CLAMP_VERT;
-    q->stretch = STRETCH_Y;
-    q->m.x0 = x0;
-    q->m.y0 = y0;
-    q->m.xx = 1;
-    q->m.xy = 0;
-    q->m.yy = 1;
-    q->m.yx = 0;
-
-    return 1;
-}
-
-static int my_set_window_quads(decor_quad_t * q, int width, int height)
-{
-    int nq;
-    int mnq = 0;
-
-    /* top quad */
-    nq = my_add_quad_row(q, width, TITLE_H + BORDER, GRAVITY_NORTH, 0, 0);
-    q += nq;
-    mnq += nq;
-
-    /* bottom quad */
-    nq = my_add_quad_row(q, width, BORDER, GRAVITY_SOUTH, 0, height - BORDER);
-    q += nq;
-    mnq += nq;
-
-    nq = my_add_quad_col(q, height - (TITLE_H + BORDER + BORDER), BORDER, GRAVITY_WEST, 0, BORDER + TITLE_H);
-    q += nq;
-    mnq += nq;
-
-    nq = my_add_quad_col(q, height - (TITLE_H + BORDER + BORDER), BORDER, GRAVITY_EAST, width - BORDER, BORDER + TITLE_H);
-    q += nq;
-    mnq += nq;
-
-    return mnq;
+    return 8;
 }
 
 #define FIT(x, min, max) (x < min ? min : x > max ? max : x)
@@ -263,7 +217,7 @@ static int my_set_window_quads(decor_quad_t * q, int width, int height)
 
 #define cairo_set_RGBA(cr, c) cairo_set_source_rgba(cr, BYTE(c, 0) / 255.0, BYTE(c, 1) / 255.0, BYTE(c, 2) / 255.0, BYTE(c, 3) / 255.0)
 
-#define cairo_show_textXY(dx, dy, s) { cairo_move_to(cr, TITLE_H + BORDER + TITLE_H / 4 + dx, TITLE_H + BORDER - 3 + dy); cairo_show_text(cr, s); }
+#define cairo_show_textXY(dx, dy, s) { cairo_move_to(cr, TITLE_H + BORDER + TITLE_H / 4 + dx, TITLE_H + BORDER - 4 + dy); cairo_show_text(cr, s); }
 
 // NOTE Will not work with -O3 magic, only -O2 allowed.
 uint16_t k (uint8_t N, uint8_t h)
@@ -275,6 +229,16 @@ uint16_t k (uint8_t N, uint8_t h)
 /*  NOTE h=0 is special one: forces not red, but gray color. Use 1 for red.  */
 uint32_t ahsl2abgr(uint8_t a, uint8_t h, uint8_t s, uint8_t l) // Full range 0..255 each
 {
+    /* Equibright curve is hue->brightness func for fully saturate. */
+    /* This should be tested on various todays display monitors as there is high variation of real perceptual brightness; then rewrite this with beziers (as they are perfectly integer/linear). */
+    int q = (MAX(50-MIN(h,255-h),0) + MAX(30-abs(h-85),0) + MAX(110-abs(h-170),0) - 20); /* Range is: -20 (yellow) to 90 (blue) */
+
+    /* Decompensate the curve for not full saturation. */
+    int p = q * s * MIN(l, 255 - l) >> 15;
+
+    l = MIN(255, (l + p)); /* Hope we never overflow uint8 here? */
+    s = MAX(  0, (s - p));
+
     if (h == 0)
         s = 0;
 
@@ -283,6 +247,9 @@ uint32_t ahsl2abgr(uint8_t a, uint8_t h, uint8_t s, uint8_t l) // Full range 0..
 #define f(N) (uint8_t) ((l * (257*255) - A * MAX(MIN(MIN(k(N, h) - 3*255, 9*255 - k(N, h)), 255), -255)) / (255*255))
 
     uint32_t result = (((((a << 8) + f(4)) << 8) + f(8)) << 8) + f(0);
+
+// printf("%x %x %x -> %d\n", h, s, l, p);
+
     return result;
 }
 
@@ -308,13 +275,13 @@ static void draw_window_decoration(decor_t * d)
         return;
 
     cairo_set_RGBA(cr, d->color[d->active][1]);
-    cairo_rectangle(cr, 0, 0, d->width, TITLE_H + BORDER * 2);
+    cairo_rectangle(cr, 0, 0, d->client_width + BORDER * 2, TITLE_H + BORDER * 2);
     cairo_fill(cr);
 
     if (d->active)
     {
-        int grad_x = MAX(TITLE_H + BORDER, d->width - BORDER * 2 - GRAD_W);
-        int grad_w = MIN(GRAD_W, d->width - BORDER * 3 - TITLE_H);
+        int grad_x = MAX(TITLE_H + BORDER, d->client_width - GRAD_W);
+        int grad_w = MIN(GRAD_W, d->client_width - BORDER - TITLE_H);
 
         if (grad_w > 0)
         {
@@ -376,9 +343,8 @@ static void draw_window_decoration(decor_t * d)
     cr = NULL;
 
     cr = cairo_create(d->surface);
-    // cairo_set_operator(cr, CAIRO_OPERATOR_SOURCE);
     cairo_set_source_surface(cr, d->buffer_surface, 0, 0);
-    cairo_rectangle(cr, 0, 0, d->width, d->height);
+    cairo_rectangle(cr, 0, 0, d->client_width + BORDER * 2, d->client_height + TITLE_H + BORDER * 2);
     cairo_clip(cr);
     cairo_paint(cr);
     cairo_destroy(cr);
@@ -391,7 +357,7 @@ static void draw_window_decoration(decor_t * d)
         unsigned int nQuad;
         decor_quad_t quads[N_QUADS_MAX];
 
-        nQuad = my_set_window_quads(quads, d->width, d->height);
+        nQuad = my_set_window_quads(quads, d->client_width);
         extents.bottom = extents.left = extents.right = 0;
         extents.top = TITLE_H;
 
@@ -452,6 +418,7 @@ static gboolean get_window_prop(Window xwindow, Atom atom, Window * val)
 
     type = None;
     result = XGetWindowProperty(xdisplay, xwindow, atom, 0, G_MAXLONG, False, XA_WINDOW, &type, &format, &nitems, &bytes_after, (void *)&w);
+
     err = gdk_error_trap_pop();
 
     if (err != Success || result != Success)
@@ -511,9 +478,10 @@ static unsigned int get_mwm_prop(Window xwindow)
     return decor;
 }
 
-#define D decor_t *d = g_object_get_data(G_OBJECT(win), "decor");
+#define D          decor_t *d = g_object_get_data(G_OBJECT(win), "decor");
+#define DECOR_SIZE (w + BORDER * 2), (TITLE_H + BORDER * 2)
 
-static void update_event_windows(WnckWindow * win)
+static void update_titlebar_windows(WnckWindow * win)
 {
     D;
     gint x0, y0, width, height;
@@ -521,8 +489,8 @@ static void update_event_windows(WnckWindow * win)
     wnck_window_get_client_window_geometry(win, &x0, &y0, &width, &height);
 
     gdk_error_trap_push();
-    XMapWindow(xdisplay, d->event_window);
-    XMoveResizeWindow(xdisplay, d->event_window, BORDER, BORDER, width, TITLE_H);
+    XMapWindow(xdisplay, d->titlebar_window);
+    XMoveResizeWindow(xdisplay, d->titlebar_window, BORDER, BORDER, width, TITLE_H);
     XSync(xdisplay, FALSE);
     (void) gdk_error_trap_pop();
 }
@@ -548,15 +516,13 @@ static void update_window_decoration_icon(WnckWindow * win)
 
     if (d->icon_pixbuf)
     {
-        cairo_t *cr;
-
         g_object_ref(G_OBJECT(d->icon_pixbuf));
 
         d->icon_surface = create_surface(gdk_pixbuf_get_width(d->icon_pixbuf),
                                          gdk_pixbuf_get_height(d->icon_pixbuf), 0);
         if (d->icon_surface && cairo_surface_get_reference_count(d->icon_surface) > 0)
         {
-            cr = cairo_create(d->icon_surface);
+            cairo_t *cr = cairo_create(d->icon_surface);
             gdk_cairo_set_source_pixbuf(cr, d->icon_pixbuf, 0, 0);
             cairo_paint(cr);
             d->icon = cairo_pattern_create_for_surface(cairo_get_target(cr));
@@ -571,26 +537,21 @@ static void update_window_decoration_state(WnckWindow * win)
     // d->state = wnck_window_get_state(win); // FIXME What it does?
 }
 
-
-#define Uw width = BORDER * 2 + MAX(w, 1)
-#define Uh height = BORDER * 2 + TITLE_H
-
 static int update_window_decoration_size(WnckWindow * win)
 {
     D;
     cairo_surface_t *surface = NULL, *buffer_surface = NULL;
     cairo_surface_t *isurface = NULL, *ibuffer_surface = NULL;
-    gint width, height, w, h;
+    gint w, h;
     int size_changed;
     const gchar *title;
     glong title_length;
 
     wnck_window_get_client_window_geometry(win, NULL, NULL, &w, &h);
+    w = MAX(w, 1);
+    h = MAX(h, 0);
 
-    Uw;
-    Uh;
-
-    if (width == d->width && height == d->height)
+    if ((w == d->client_width) && (h == d->client_height))
     {
         size_changed = 0;
         goto update_window_decoration_name;
@@ -598,22 +559,22 @@ static int update_window_decoration_size(WnckWindow * win)
     else
         size_changed = 1;
 
-    int max_w_h = MAX(width, height);
-#define U max_w_h, (TITLE_H + BORDER * 4)
+    d->client_width = w;
+    d->client_height = h;
 
-    surface = create_surface(U, 1);
+    surface = create_surface(DECOR_SIZE, 1);
     if (surface == NULL)
         return FALSE;
 
-    buffer_surface = create_surface(U, 0);
+    buffer_surface = create_surface(DECOR_SIZE, 0);
     if (buffer_surface == NULL)
         goto fail1;
 
-    isurface = create_surface(U, 1);
+    isurface = create_surface(DECOR_SIZE, 1);
     if (isurface == NULL)
         goto fail2;
 
-    ibuffer_surface = create_surface(U, 0);
+    ibuffer_surface = create_surface(DECOR_SIZE, 0);
     if (ibuffer_surface == NULL)
     {
         cairo_surface_destroy(isurface);
@@ -644,9 +605,6 @@ fail1:
     d->p_inactive_surface        = isurface;
     d->p_inactive_buffer_surface = ibuffer_surface;
 
-    d->width = width;
-    d->height = height;
-
     d->prop_xid = wnck_window_get_xid(win);
 
     d->hue = d->prop_xid % 255 + 1;
@@ -667,8 +625,7 @@ update_window_decoration_name:
 // printf("title: '%s'\n", d->title);
     }
 
-    if (size_changed)
-        queue_decor_draw(d);
+    queue_decor_draw(d);
 
     return size_changed;
 }
@@ -688,26 +645,24 @@ static void add_frame_window(WnckWindow * win, Window frame)
 
     gdk_error_trap_push();
 
-    d->event_window = XCreateWindow(xdisplay, frame, 0, 0, 1, 1, 0, CopyFromParent, CopyFromParent, CopyFromParent, CWOverrideRedirect | CWEventMask, &attr);
+    d->titlebar_window = XCreateWindow(xdisplay, frame, 0, 0, 1, 1, 0, CopyFromParent, CopyFromParent, CopyFromParent, CWOverrideRedirect | CWEventMask, &attr);
 
     // NOTE attr.event_mask |= ButtonReleaseMask;
 
     XSync(xdisplay, FALSE);
     if (! gdk_error_trap_pop())
     {
-        // if (get_mwm_prop(xid) & (MWM_DECOR_ALL | MWM_DECOR_TITLE))  BUG?
-        //     d->decorated = 1;                                       BUG?
         d->decorated = (get_mwm_prop(xid) & (MWM_DECOR_ALL | MWM_DECOR_TITLE));
 
-        g_hash_table_insert(frame_table, GUINT_TO_POINTER(d->event_window), GUINT_TO_POINTER(xid));
+        g_hash_table_insert(frame_table, GUINT_TO_POINTER(d->titlebar_window), GUINT_TO_POINTER(xid));
 
         update_window_decoration_state(win);
         update_window_decoration_icon(win);
         update_window_decoration_size(win);
-        update_event_windows(win);
+        update_titlebar_windows(win);
     }
     else
-        memset((void *)d->event_window, 0, sizeof(d->event_window));
+        memset((void *)d->titlebar_window, 0, sizeof(d->titlebar_window));
 }
 
 static void remove_frame_window(WnckWindow * win)
@@ -747,7 +702,7 @@ static void remove_frame_window(WnckWindow * win)
         d->icon_pixbuf = NULL;
     }
 
-    d->width = d->height = d->decorated = 0;
+    d->client_width = d->client_height = d->decorated = 0;
     draw_list = g_slist_remove(draw_list, d);
 }
 
@@ -756,22 +711,19 @@ static void remove_frame_window(WnckWindow * win)
 static void window_name_changed(WnckWindow * win)
 {
     DR;
-    if (! update_window_decoration_size(win))
-        queue_decor_draw(d);
+    update_window_decoration_size(win);
 }
 
 static void window_geometry_changed(WnckWindow * win)
 {
     DR;
-    int width, height;
-    wnck_window_get_client_window_geometry(win, NULL, NULL, &width, &height);
+    int w, h;
+    wnck_window_get_client_window_geometry(win, NULL, NULL, &w, &h);
 
-    if ((width != d->client_width) || (height != d->client_height))
+    if ((w != d->client_width) || (h != d->client_height))
     {
-        d->client_width = width;
-        d->client_height = height;
         update_window_decoration_size(win);
-        update_event_windows(win);
+        update_titlebar_windows(win);
     }
 }
 
@@ -787,10 +739,10 @@ static void window_state_changed(WnckWindow * win)
     DR;
     update_window_decoration_state(win);
     update_window_decoration_size(win);
-    update_event_windows(win);
+    update_titlebar_windows(win);
 
     d->prop_xid = wnck_window_get_xid(win);
-    queue_decor_draw(d);
+    // queue_decor_draw(d);
 }
 
 static void active_window_changed_1(WnckWindow *win)
@@ -822,8 +774,6 @@ static void window_opened(WnckScreen *screen, WnckWindow *win)
     d = g_malloc0(sizeof(decor_t));
     if (!d)
         return;
-
-    wnck_window_get_client_window_geometry(win, NULL, NULL, &d->client_width, &d->client_height);
 
     d->draw = draw_window_decoration;
 
@@ -886,8 +836,6 @@ static void move_resize_restack_window(WnckWindow * win, Atom atom, int l0, int 
     XSync(xdisplay, FALSE);
 }
 
-
-
 /* This is Window menu: right mouse button on title, or Alt+Space */
 
 /*   NOTE that original Emerald uses GTK2; this code also work with it.
@@ -900,6 +848,8 @@ static void move_resize_restack_window(WnckWindow * win, Atom atom, int l0, int 
  * So, only Alt+Space will work with GTK3, but no mouse.
  *   Hope I am wrong with above; but, no any example I found for mouse
  * popup menu on title with GTK3.  */
+
+/* Now it completely reworked using PyQt. */
 static void action_menu_map(WnckWindow *win, XEvent *xevent)
 {
     /* Check if previous menu is still displayed */
@@ -1064,86 +1014,11 @@ static GdkFilterReturn event_filter_func(GdkXEvent * gdkxevent, GdkEvent * event
             D;
 
             if (d->decorated)
-                if (d->event_window == xevent->xany.window)
+                if (d->titlebar_window == xevent->xany.window)
                     (*callback) (win, xevent, gdkxevent);
         }
     }
     return GDK_FILTER_CONTINUE;
-}
-
-static void update_default_decorations(void)
-{
-    decor_t d;
-    decor_quad_t quads[N_QUADS_MAX];
-    decor_extents_t extents;
-
-    memset(&d, 0, sizeof(decor_t));
-
-    Atom bareAtom = XInternAtom(xdisplay, DECOR_BARE_ATOM_NAME, FALSE);
-    Atom activeAtom = XInternAtom(xdisplay, DECOR_ACTIVE_ATOM_NAME, FALSE);
-
-    long *data = NULL;
-    data = decor_alloc_property(1, WINDOW_DECORATION_TYPE_PIXMAP);
-
-    XDeleteProperty(xdisplay, xroot, bareAtom);
-
-    int w = 200; // What is it? FIXME
-    d.Uw;
-    d.Uh;
-
-    extents.bottom = extents.left = extents.right = 0;
-    extents.top = TITLE_H;
-
-    d.surface = NULL;
-    d.buffer_surface = NULL;
-    d.icon = NULL;
-    d.prop_xid = 0;
-    d.draw = draw_window_decoration;
-
-    if (d.decor_normal_surface != NULL)
-        cairo_surface_destroy(d.decor_normal_surface);
-    if (d.decor_active_surface != NULL)
-        cairo_surface_destroy(d.decor_active_surface);
-
-    uint32_t nQuad = my_set_window_quads(quads, d.width, d.height);
-
-    int max_w_h = MAX(d.width, d.height);
-    d.decor_normal_surface = create_surface(U, 1);
-    d.decor_active_surface = create_surface(U, 1);
-
-    if (d.decor_normal_surface != NULL &&
-        d.decor_active_surface != NULL)
-    {
-        d.p_inactive_surface = d.decor_normal_surface;
-        d.p_active_surface = d.decor_active_surface;
-        d.p_active_buffer_surface = NULL;
-        d.p_inactive_buffer_surface = NULL;
-        d.active = FALSE;
-
-        (*d.draw) (&d);
-
-        decor_quads_to_property(data, 0, cairo_xlib_surface_get_drawable(d.p_inactive_surface), &extents, &extents, &extents, &extents, 0, 0, quads, nQuad, 0xffffff, 0, 0);
-
-        decor_quads_to_property(data, 0, cairo_xlib_surface_get_drawable(d.p_active_surface), &extents, &extents, &extents, &extents, 0, 0, quads, nQuad, 0xffffff, 0, 0);
-
-        XChangeProperty(xdisplay, xroot, activeAtom, XA_INTEGER, 32, PropModeReplace, (guchar *) data, PROP_HEADER_SIZE + BASE_PROP_SIZE + QUAD_PROP_SIZE * N_QUADS_MAX);
-    }
-    else
-    {
-        if (d.decor_normal_surface != NULL)
-        {
-            cairo_surface_destroy(d.decor_normal_surface);
-            d.decor_normal_surface = NULL;
-        }
-        if (d.decor_active_surface != NULL)
-        {
-            cairo_surface_destroy(d.decor_active_surface);
-            d.decor_active_surface = NULL;
-        }
-    }
-
-    if (data)
-        free(data);
 }
 
 static void signal_handler(int sig)
@@ -1294,7 +1169,31 @@ int main(int argc, char *argv[])
 
     decor_set_dm_check_hint(xdisplay, DefaultScreen(xdisplay), WINDOW_DECORATION_TYPE_PIXMAP);
 
-    update_default_decorations();
+    Atom bareAtom = XInternAtom(xdisplay, DECOR_BARE_ATOM_NAME, FALSE);
+    XDeleteProperty(xdisplay, xroot, bareAtom);
+
+    int w = 0;
+    cairo_surface_t *temp_surface = create_surface(DECOR_SIZE, 1);
+
+    if (! temp_surface)
+        return 1;
+
+    long *data = decor_alloc_property(1, WINDOW_DECORATION_TYPE_PIXMAP);
+
+    decor_quad_t quads[N_QUADS_MAX];
+    // uint32_t nQuad = my_set_window_quads(quads, 1); // d.client_width);
+
+    decor_extents_t extents;
+    extents.bottom = extents.left = extents.right = 0;
+    extents.top = TITLE_H;
+
+    decor_quads_to_property(data, 0, cairo_xlib_surface_get_drawable(temp_surface), &extents, &extents, &extents, &extents, 0, 0, quads, my_set_window_quads(quads, 1), 0xffffff, 0, 0);
+
+    Atom activeAtom = XInternAtom(xdisplay, DECOR_ACTIVE_ATOM_NAME, FALSE);
+
+    XChangeProperty(xdisplay, xroot, activeAtom, XA_INTEGER, 32, PropModeReplace, (guchar *) data, PROP_HEADER_SIZE + BASE_PROP_SIZE + QUAD_PROP_SIZE * N_QUADS_MAX);
+
+    free(data);
 
     GList *windows = wnck_screen_get_windows(wnck_screen);
     while (windows)
@@ -1306,9 +1205,9 @@ int main(int argc, char *argv[])
 
         if (d->decorated)
         {
-            d->width = d->height = 0;
+            d->client_width = d->client_height = 0;
             update_window_decoration_size(WNCK_WINDOW(windows->data));
-            update_event_windows(WNCK_WINDOW(windows->data));
+            update_titlebar_windows(WNCK_WINDOW(windows->data));
         }
         windows = windows->next;
     }
@@ -1316,6 +1215,8 @@ int main(int argc, char *argv[])
     // g_timeout_add(500, reload_if_needed, NULL);
 
     gtk_main();
+
+    cairo_surface_destroy(temp_surface);
 
 #ifdef GTK3
     g_clear_object (&wnck_handle);
