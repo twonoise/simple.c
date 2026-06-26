@@ -28,36 +28,51 @@ Furthermore, I've made it working with both GTK2 and GTK3, and PyQt5 and PyQt6, 
 
 Color model will be HSL based, as it is requirement to have _High Contrast_ mode, which is a pain with RGB, but quite easy with HSL. Additionally, HSL gives uniform look and makes it possible to have all correct pixels for per-window colors. HSL not slows down the operation.
 
+I've also added equibright (CIE) compensator for HSL to RGB conversion, to get better _perceptual_ brightness experience, while still keep integer (8-bit mostly) math. It is sometimes called 'HS _P_' color model.
+
 It's all available in one C file, with minimal possible deps, and file sizes less than 64 kb both source and binary.
 
 Compile
 =======
 
-1. Install `Terminus` font, or other truly bitmap `.bdf`/`.pcf` fonts. Note that Terminus can be named `Terminus` on one system, and `xos4 Terminus` on another, so **correct the font name at our C code first**. Use 'fc-list | grep erminus' to check. As Terminus package brings `.otb` versions also, be sure to delete these.
+* Install `Terminus` font, or other truly bitmap `.bdf`/`.pcf` fonts. Note that Terminus can be named `Terminus` on one system, and `xos4 Terminus` on another, so **correct the font name at our C code first**. Use `fc-list | grep erminus` to check. As Terminus package brings `.otb` versions also, be sure to delete these.
 
-2. Use both `qt5ct` and `qt6ct` to select `(xos4) Terminus`, then check system-wide effects on Qt software like LXQt itself. Note that one should have `QT_QPA_PLATFORMTHEME=qt_ct` at `/etc/environment`. Btw, note that this exactly font **does not exist** at GTK's programs font selection menus.
+* Use both `qt5ct` and `qt6ct` to select `(xos4) Terminus`:
+  
+> Btw, note that this exactly font **does not exist** at GTK's programs font selection menus.
+  
+    QT_QPA_PLATFORMTHEME=qt5ct qt5ct
 
-3. Install Chicago95 theme; we need icons only from it. Then correct icons path at C code.
+    QT_QPA_PLATFORMTHEME=qt6ct qt6ct
+   
+Then check system-wide effects on Qt software like LXQt itself. Note that one should have `QT_QPA_PLATFORMTHEME=qt_ct` at `/etc/environment`, so select your preferable QtX here for system-wide. 
 
-4. Replace `PyQt6` to `PyQt5` if need. Install the toolkit:
 
-    pacman -S python-pyqt_
+* Install Chicago95 theme; we need icons only from it. Then correct icons path at C code.
 
-5. Install other requirements. For `wnck`, it differs for GTK2 and GTK3:
+* Replace `PyQt6` to `PyQt5` if need. Install the toolkit:
 
-    yay -S libwnck
+    `pacman -S python-pyqt_`
+
+* Install other requirements. For `wnck`, it differs for GTK2 and GTK3:
+
+    `yay -S libwnck`
 
 or
 
     pacman -S libwnck3
 
-6. Compile:
+* Compile:
 
-    gcc -Wall -Wno-unused-result -lX11 -I/usr/include/compiz/ -ldecoration -I/usr/include/libwnck-1.0/ -lwnck-1 -I/usr/include/python3.14 -lpython3.14 `pkg-config --cflags --libs gtk+-2.0` simple.c -o simple
+    `gcc -Wall -Wno-unused-result -lX11 -I/usr/include/compiz/ -ldecoration -I/usr/include/libwnck-1.0/ -lwnck-1 -I/usr/include/python3.14 -lpython3.14 `pkg-config --cflags --libs gtk+-2.0` simple.c -o simple`
 
 or
 
     gcc -DGTK3 -Wall -Wno-unused-result -lX11 -I/usr/include/compiz/ -ldecoration -I/usr/include/libwnck-3.0/ -lwnck-3 -I/usr/include/python3.14 -lpython3.14 `pkg-config --cflags --libs gtk+-3.0` simple.c -o simple
+
+or
+
+    clang ...
 
 Note that, if we expand `pkg-config...`, we will see the Pango use; but it is not required and not used, and most probably, does not increase binary size.
 
