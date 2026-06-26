@@ -36,6 +36,8 @@ Color model will be HSL based, as it is requirement to have _High Contrast_ mode
 
 I've also added equibright (CIE) compensator for HSL to RGB conversion, to get better _perceptual_ brightness experience, while still keep integer (8-bit mostly) math. It is sometimes called 'HS _P_' color model.
 
+> A proper equibright is impossible without either (_a_) squeeze color space, or, (_b_) reduce dynamic range (brightness) of display device for an order (pure yellow to pure blue brightness ratio), so quite expensive display need, **and**, full desktop (not just one window) support. (Or, somewhere between _a_ & _b_). We use the former one here.
+
 It's all available in one C file, with minimal possible deps, and file sizes less than 64 kb both source and binary.
 
 Compile
