@@ -99,12 +99,19 @@ Then try
 
 And if it works, start `ccsm`, find "Window Decoration", "Command", use "exec /usr/local/bin/simple". Note that Compiz then can be used by LXDE directly: Main Menu, LXQt settings, Session settings, X11 settings, Window manager: `/usr/bin/compiz` .
 
+Q & A
+=====
+
+_Where are title buttons?_
+
+Ask me if you need it, I'll add.
+
 Bugs
 ====
 
 There are many, like massive memory leaks from Python libraries, and other places, please see C code. Probably, most are one leak per session, so it is not really a leak at all, as it is just memory used for program to work.
 
-There is bug with popup menu, when we can connect input signal to Python code when we are change active window, so current popup, if any, should gone. Good news are it's rare condition, as popups are gone itself most time by normal computer use.
+There is bug with popup menu, when we can't connect input signal to Python code when we are change active window, so current popup, if any, should gone. Good news are it's rare condition, as popups are gone itself most time by normal computer use.
 
 LICENSE
 =======
