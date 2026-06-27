@@ -19,6 +19,7 @@
 #include <Python.h>
 
 #include <stdlib.h>
+#include <locale.h>
 #include <X11/Xlib.h>
 #include <X11/Xatom.h>
 #include <gdk/gdkx.h>
@@ -41,6 +42,8 @@
     #include <libwnck/libwnck.h>
 #endif
 
+#define MAX_TITLE_STRLEN 1024
+
 typedef struct _decor
 {
     void    (*draw) (struct _decor *d);
@@ -52,7 +55,7 @@ typedef struct _decor
     int              active;
     uint8_t          hue;
     uint32_t         color[2][3];
-    gchar            title[256];           // FIXME! NOTE!
+    gchar            title[MAX_TITLE_STRLEN]; /* In bytes, not UTF glyphs */
     GdkPixbuf       *icon_pixbuf;
     cairo_pattern_t *icon;
     cairo_surface_t *icon_surface;
@@ -66,6 +69,7 @@ typedef struct _decor
 
 static Atom frame_window_atom;
 static Atom win_decor_atom;
+static Atom active_atom;
 static Atom wm_move_resize_atom;
 static Atom restack_window_atom;
 static Atom wm_protocols_atom;
@@ -87,6 +91,7 @@ GdkScreen  *gdkscreen;
 Display    *xdisplay;
 Window      xroot;
 
+int utf;
 uint8_t bayer[16][16];
 
 PyObject *pArgs, *pFunc;
@@ -205,8 +210,10 @@ static int my_set_window_quads(decor_quad_t * q, int width)
 
     my_add_quad_row(width, (TITLE_H + BORDER), GRAVITY_NORTH, 0, 0);
     my_add_quad_row(width, BORDER, GRAVITY_SOUTH, 0, (TITLE_H + BORDER));
-    my_add_quad_col((TITLE_H + BORDER*2), BORDER, GRAVITY_WEST, 0, (BORDER + TITLE_H));
-    my_add_quad_col((TITLE_H + BORDER*2), BORDER, GRAVITY_EAST, (width + BORDER), (BORDER + TITLE_H));
+    // my_add_quad_col((TITLE_H + BORDER*2), BORDER, GRAVITY_WEST, 0, (BORDER + TITLE_H));
+    // my_add_quad_col((TITLE_H + BORDER*2), BORDER, GRAVITY_EAST, (width + BORDER), (BORDER + TITLE_H));
+    my_add_quad_col((TITLE_H + BORDER*2), BORDER, GRAVITY_WEST, 0, 0);
+    my_add_quad_col((TITLE_H + BORDER*2), BORDER, GRAVITY_EAST, (width + BORDER), 0);
 
     return 8;
 }
@@ -251,6 +258,21 @@ uint32_t ahsl2abgr(uint8_t a, uint8_t h, uint8_t s, uint8_t l) // Full range 0..
 // printf("%x %x %x -> %d\n", h, s, l, p);
 
     return result;
+}
+
+long *decor_alloc_property_data; // = decor_alloc_property(1, WINDOW_DECORATION_TYPE_PIXMAP);
+
+static void init_decor(XID xid, int client_width, cairo_surface_t *surface, int type)
+{
+    decor_quad_t quads[N_QUADS_MAX];
+    unsigned int nQuad = my_set_window_quads(quads, client_width);
+    decor_extents_t extents = {.bottom = 0, .left = 0, .right = 0, .top = TITLE_H};
+
+    decor_quads_to_property(decor_alloc_property_data, 0, cairo_xlib_surface_get_drawable(surface), &extents, &extents, &extents, &extents, 0, 0, quads, nQuad, 0xffffff, 0, 0);
+
+    gdk_error_trap_push();
+    XChangeProperty(xdisplay, xid, type ? win_decor_atom : active_atom, XA_INTEGER, 32, PropModeReplace, (guchar *) decor_alloc_property_data, PROP_HEADER_SIZE + BASE_PROP_SIZE + QUAD_PROP_SIZE * N_QUADS_MAX);
+    (void) gdk_error_trap_pop();
 }
 
 static void draw_window_decoration(decor_t * d)
@@ -344,36 +366,15 @@ static void draw_window_decoration(decor_t * d)
 
     cr = cairo_create(d->surface);
     cairo_set_source_surface(cr, d->buffer_surface, 0, 0);
-    cairo_rectangle(cr, 0, 0, d->client_width + BORDER * 2, d->client_height + TITLE_H + BORDER * 2);
+    cairo_rectangle(cr, 0, 0, d->client_width + BORDER * 2, TITLE_H + BORDER * 2);
     cairo_clip(cr);
     cairo_paint(cr);
     cairo_destroy(cr);
 
-    if (d->prop_xid)
-    {
-        long *data = NULL;
+    /* I believe it should be possible not each time FIXME */
+    init_decor(d->prop_xid, d->client_width, d->surface, 1);
 
-        decor_extents_t extents;
-        unsigned int nQuad;
-        decor_quad_t quads[N_QUADS_MAX];
-
-        nQuad = my_set_window_quads(quads, d->client_width);
-        extents.bottom = extents.left = extents.right = 0;
-        extents.top = TITLE_H;
-
-        data = decor_alloc_property(1, WINDOW_DECORATION_TYPE_PIXMAP);
-
-        decor_quads_to_property(data, 0, cairo_xlib_surface_get_drawable(d->surface), &extents, &extents, &extents, &extents, 0, 0, quads, nQuad, 0xffffff, 0, 0);
-
-        gdk_error_trap_push();
-        XChangeProperty(xdisplay, d->prop_xid, win_decor_atom, XA_INTEGER, 32, PropModeReplace, (guchar *) data, PROP_HEADER_SIZE + BASE_PROP_SIZE + QUAD_PROP_SIZE * N_QUADS_MAX);
-
-        XSync(xdisplay, FALSE);
-
-        (void) gdk_error_trap_pop();
-
-        // d->prop_xid = 0; // FIXME Why it was?
-    }
+    XSync(xdisplay, FALSE);
 }
 
 static gboolean draw_decor_list(void *data)
@@ -478,8 +479,9 @@ static unsigned int get_mwm_prop(Window xwindow)
     return decor;
 }
 
-#define D          decor_t *d = g_object_get_data(G_OBJECT(win), "decor");
-#define DECOR_SIZE (w + BORDER * 2), (TITLE_H + BORDER * 2)
+#define D decor_t *d = g_object_get_data(G_OBJECT(win), "decor");
+  /* For GTK2 only, do not remove one extra height pixel. */
+#define DECOR_SIZE (w + BORDER * 2), (TITLE_H + BORDER * 2 + 1)
 
 static void update_titlebar_windows(WnckWindow * win)
 {
@@ -537,15 +539,14 @@ static void update_window_decoration_state(WnckWindow * win)
     // d->state = wnck_window_get_state(win); // FIXME What it does?
 }
 
-static int update_window_decoration_size(WnckWindow * win)
+static int update_decoration_size_or_title(WnckWindow * win)
 {
     D;
     cairo_surface_t *surface = NULL, *buffer_surface = NULL;
     cairo_surface_t *isurface = NULL, *ibuffer_surface = NULL;
     gint w, h;
     int size_changed;
-    const gchar *title;
-    glong title_length;
+    int i;
 
     wnck_window_get_client_window_geometry(win, NULL, NULL, &w, &h);
     w = MAX(w, 1);
@@ -554,7 +555,7 @@ static int update_window_decoration_size(WnckWindow * win)
     if ((w == d->client_width) && (h == d->client_height))
     {
         size_changed = 0;
-        goto update_window_decoration_name;
+        goto update_title;
     }
     else
         size_changed = 1;
@@ -614,18 +615,39 @@ fail1:
     const uint64_t satur = 0x0000A020C410C410;
     const uint64_t luma  = 0x0000E0C060602020;
 
-    for (int i = 0; i < 6; i++)
+    for (i = 0; i < 6; i++)
         d->color[i%2][i/2] = ahsl2abgr(255, d->hue, BYTE(satur, i), BYTE(luma, i));
 
-update_window_decoration_name:
-    title = wnck_window_get_name(win);
-    if (title && (title_length = strlen(title)))
-    {
-        strncpy(d->title, title, 100); // FIXME and handle UTF
-// printf("title: '%s'\n", d->title);
-    }
+update_title:
+    const char* title = wnck_window_get_name(win);
 
-    queue_decor_draw(d);
+    int title_glyphs = MAX(((d->client_width - TITLE_H - BORDER) / (TITLE_H/2) - 1), 0);
+
+    if (utf)
+    {
+        /* UTF slows down operation. It should be avoided at hi-rel apps. */
+        i = 0;
+        int glyphs = 0;
+        while ((title[i]) && (i < (MAX_TITLE_STRLEN - 1)))
+        {
+            if ((title[i] & 0xC0) != 0x80)
+                if (++glyphs > title_glyphs)
+                    break;
+
+            d->title[i] = title[i];
+            i++;
+        }
+    }
+    else
+    {
+        i = MIN(MAX_TITLE_STRLEN, title_glyphs);
+        strncpy(d->title, title, i);
+    }
+    d->title[i] = '\0';
+
+
+    // if (size_changed)
+        queue_decor_draw(d);
 
     return size_changed;
 }
@@ -658,7 +680,7 @@ static void add_frame_window(WnckWindow * win, Window frame)
 
         update_window_decoration_state(win);
         update_window_decoration_icon(win);
-        update_window_decoration_size(win);
+        update_decoration_size_or_title(win);
         update_titlebar_windows(win);
     }
     else
@@ -711,7 +733,7 @@ static void remove_frame_window(WnckWindow * win)
 static void window_name_changed(WnckWindow * win)
 {
     DR;
-    update_window_decoration_size(win);
+    update_decoration_size_or_title(win);
 }
 
 static void window_geometry_changed(WnckWindow * win)
@@ -722,7 +744,7 @@ static void window_geometry_changed(WnckWindow * win)
 
     if ((w != d->client_width) || (h != d->client_height))
     {
-        update_window_decoration_size(win);
+        update_decoration_size_or_title(win);
         update_titlebar_windows(win);
     }
 }
@@ -738,7 +760,7 @@ static void window_state_changed(WnckWindow * win)
 {
     DR;
     update_window_decoration_state(win);
-    update_window_decoration_size(win);
+    update_decoration_size_or_title(win);
     update_titlebar_windows(win);
 
     d->prop_xid = wnck_window_get_xid(win);
@@ -1050,6 +1072,16 @@ int main(int argc, char *argv[])
         }
     }
 
+    utf = 0;
+    if(setlocale(LC_ALL, ""))
+    {
+        char *locale = setlocale(LC_MESSAGES, NULL);
+        if (locale && (strstr(locale, "UTF") || strstr(locale, "utf")))
+            utf = 1;
+        else
+            printf("%s: LC_MESSAGES set to single-byte: '%s'\n", argv[0], locale);
+    }
+
     Py_Initialize();
 
     const char PyMenuSrc[] =
@@ -1110,13 +1142,14 @@ int main(int argc, char *argv[])
     xroot = RootWindowOfScreen(gdk_x11_screen_get_xscreen(gdkscreen));
     gdk_error_trap_push();
 
-    frame_window_atom = XInternAtom(xdisplay, DECOR_INPUT_FRAME_ATOM_NAME, FALSE);
-    win_decor_atom = XInternAtom(xdisplay, DECOR_WINDOW_ATOM_NAME, FALSE);
+    frame_window_atom   = XInternAtom(xdisplay, DECOR_INPUT_FRAME_ATOM_NAME, FALSE);
+    win_decor_atom      = XInternAtom(xdisplay, DECOR_WINDOW_ATOM_NAME, FALSE);
+    active_atom         = XInternAtom(xdisplay, DECOR_ACTIVE_ATOM_NAME, FALSE);
     wm_move_resize_atom = XInternAtom(xdisplay, "_NET_WM_MOVERESIZE", FALSE);
     restack_window_atom = XInternAtom(xdisplay, "_NET_RESTACK_WINDOW", FALSE);
     // select_window_atom = XInternAtom(xdisplay, DECOR_SWITCH_WINDOW_ATOM_NAME, FALSE);
-    mwm_hints_atom = XInternAtom(xdisplay, "_MOTIF_WM_HINTS", FALSE);
-    wm_protocols_atom = XInternAtom(xdisplay, "WM_PROTOCOLS", FALSE);
+    mwm_hints_atom      = XInternAtom(xdisplay, "_MOTIF_WM_HINTS", FALSE);
+    wm_protocols_atom   = XInternAtom(xdisplay, "WM_PROTOCOLS", FALSE);
 
     toolkit_action_atom = XInternAtom(xdisplay, "_COMPIZ_TOOLKIT_ACTION", FALSE);
     toolkit_action_window_menu_atom = XInternAtom(xdisplay, "_COMPIZ_TOOLKIT_ACTION_WINDOW_MENU", FALSE);
@@ -1178,22 +1211,9 @@ int main(int argc, char *argv[])
     if (! temp_surface)
         return 1;
 
-    long *data = decor_alloc_property(1, WINDOW_DECORATION_TYPE_PIXMAP);
+    decor_alloc_property_data = decor_alloc_property(1, WINDOW_DECORATION_TYPE_PIXMAP);
 
-    decor_quad_t quads[N_QUADS_MAX];
-    // uint32_t nQuad = my_set_window_quads(quads, 1); // d.client_width);
-
-    decor_extents_t extents;
-    extents.bottom = extents.left = extents.right = 0;
-    extents.top = TITLE_H;
-
-    decor_quads_to_property(data, 0, cairo_xlib_surface_get_drawable(temp_surface), &extents, &extents, &extents, &extents, 0, 0, quads, my_set_window_quads(quads, 1), 0xffffff, 0, 0);
-
-    Atom activeAtom = XInternAtom(xdisplay, DECOR_ACTIVE_ATOM_NAME, FALSE);
-
-    XChangeProperty(xdisplay, xroot, activeAtom, XA_INTEGER, 32, PropModeReplace, (guchar *) data, PROP_HEADER_SIZE + BASE_PROP_SIZE + QUAD_PROP_SIZE * N_QUADS_MAX);
-
-    free(data);
+    init_decor(xroot, 1, temp_surface, 0);
 
     GList *windows = wnck_screen_get_windows(wnck_screen);
     while (windows)
@@ -1206,7 +1226,7 @@ int main(int argc, char *argv[])
         if (d->decorated)
         {
             d->client_width = d->client_height = 0;
-            update_window_decoration_size(WNCK_WINDOW(windows->data));
+            update_decoration_size_or_title(WNCK_WINDOW(windows->data));
             update_titlebar_windows(WNCK_WINDOW(windows->data));
         }
         windows = windows->next;
@@ -1216,6 +1236,7 @@ int main(int argc, char *argv[])
 
     gtk_main();
 
+    free(decor_alloc_property_data);
     cairo_surface_destroy(temp_surface);
 
 #ifdef GTK3
