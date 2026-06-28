@@ -33,7 +33,7 @@ Other trouble with dark theme is with icons:
 And it can not have any **general** solution, at the point of view of dark themes. Again, only we can is _do not use **dark** theme_, but use inversion.
 
 
-The only working solution for per-window inversion, and without color damage like just RGB inversion, is `Compiz`.
+The only working solution for per-window inversion, and without color damage like just RGB inversion, is `Compiz`, or more precisely, **`Compiz Color Filter`**.
 
 The problem with `LXQT` is that it, as it's whole Qt base, is C++ but not C. There is no chances to fix something, or even introduce own applets. Those who can C++, are quite expensive and not have time for FOSS mostly. (Please show me that I am wrong here). Well, let's try to use LXQT.
 
