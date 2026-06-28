@@ -26,7 +26,7 @@ We then use _white_ themes, as they're _only_ themes without incorrectly colored
 
 The only working solution for per-window inversion, and without color damage like just RGB inversion, is `Compiz`.
 
-The problem with `LXQT` is that it, as it's whole Qt base, is C++ but not C. There is no chances to fix something, or even introduce own applets. Those who can C++, are quite expensive and not have time for FOSS mostly. (Please show me that I am whong here). Well, let's try to use LXQT.
+The problem with `LXQT` is that it, as it's whole Qt base, is C++ but not C. There is no chances to fix something, or even introduce own applets. Those who can C++, are quite expensive and not have time for FOSS mostly. (Please show me that I am wrong here). Well, let's try to use LXQT.
 
 It can be quickly observed that so called Window Decorators for Compiz, like it's internal one, and external Emerald (btw, as well as it's CCSM control panel), are uses GTK. Which makes impossible to use bitmap fonts for window pop-up actions menu (like Minimize, Close...). In order to fix this, and to reduce amount of code, making it faster and possible for others to introduce their own health care requirements to decorator, I will try to create simple decorator based on Emerald. Currently, GTK can't be excluded from it; bu, it's turns out that GTK still have working previous mechanism of 'simple' font rendering, which **support bitmap fonts**. We will use it for title. If it disappeared some day, I'll rewrite to Qt text render. For pop-up menu, I use it already: our menu will be Qt based. As there is rarely possible to use C++ QMenu from C code, I will use Python binding (PyQt) for it.
 
