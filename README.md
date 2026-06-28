@@ -24,6 +24,15 @@ At other side, we have Qt. It is rock solid thing so far. The original DE comes 
 
 We then use _white_ themes, as they're _only_ themes without incorrectly colored elements; then we just invert it all. Note that inversion is per-window, of course, as we don't want videos or photos, or correctly written programs like **Carla**, to be inverted.
 
+Other trouble with dark theme is with icons:
+
+<img width="245" height="271" alt="dark-theme-icons" src="https://github.com/user-attachments/assets/9fce119d-e5b5-4898-83e3-e5a588bd9c94" />
+
+<small> _Fig. 1. Note wrong icons and border colors on dark themed context menu._ </small>
+
+And it can not have any **general** solution, at the point of view of dark themes. Again, only we can is _do not use **dark** theme_, but use inversion.
+
+
 The only working solution for per-window inversion, and without color damage like just RGB inversion, is `Compiz`.
 
 The problem with `LXQT` is that it, as it's whole Qt base, is C++ but not C. There is no chances to fix something, or even introduce own applets. Those who can C++, are quite expensive and not have time for FOSS mostly. (Please show me that I am wrong here). Well, let's try to use LXQT.
