@@ -56,16 +56,15 @@ typedef struct _decor
     uint8_t          hue;
     uint32_t         color[2][3];
     gchar            title[MAX_TITLE_STRLEN]; /* In bytes, not UTF glyphs */
-    GdkPixbuf       *icon_pixbuf;
-    cairo_pattern_t *icon;
+    GdkPixbuf       *icon_gdkpixbuf;
     cairo_surface_t *icon_surface;
     cairo_surface_t *surface;
     cairo_surface_t *buffer_surface;
-    cairo_surface_t *p_active_surface;
-    cairo_surface_t *p_active_buffer_surface;
-    cairo_surface_t *p_inactive_surface;
-    cairo_surface_t *p_inactive_buffer_surface;
+    cairo_surface_t *p_surface[2];
+    cairo_surface_t *p_buffer_surface[2];
 } decor_t;
+
+long *decor_alloc_property_data;
 
 static Atom frame_window_atom;
 static Atom win_decor_atom;
@@ -75,9 +74,7 @@ static Atom restack_window_atom;
 static Atom wm_protocols_atom;
 static Atom mwm_hints_atom;
 static Atom toolkit_action_atom;
-static Atom toolkit_action_window_menu_atom;
-
-static Atom emerald_sigusr1_atom;
+static Atom toolkit_menu_atom;
 
 static Time dm_sn_timestamp;
 
@@ -106,7 +103,11 @@ static cairo_surface_t *create_surface(int w, int h, int isImageOrXlib)
         return NULL;
 
     if (isImageOrXlib) /* Xlib */
+#ifdef GTK3
         surface = gdk_window_create_similar_surface(WIN_POPUP, CAIRO_CONTENT_COLOR_ALPHA, w, h);
+#else
+        surface = gdk_window_create_similar_surface(WIN_POPUP, CAIRO_CONTENT_COLOR_ALPHA, w, h + 1); /* BUG One extra pixel for GDK2 only, looks like critical bug. */
+#endif
     else               /* Image */
 #ifdef GTK3
         surface = gdk_window_create_similar_image_surface(WIN_POPUP, CAIRO_FORMAT_ARGB32, w, h, 0);
@@ -208,12 +209,10 @@ static int my_set_window_quads(decor_quad_t * q, int width)
         XXXYYYYX; \
         q++; }
 
-    my_add_quad_row(width, (TITLE_H + BORDER), GRAVITY_NORTH, 0, 0);
-    my_add_quad_row(width, BORDER, GRAVITY_SOUTH, 0, (TITLE_H + BORDER));
-    // my_add_quad_col((TITLE_H + BORDER*2), BORDER, GRAVITY_WEST, 0, (BORDER + TITLE_H));
-    // my_add_quad_col((TITLE_H + BORDER*2), BORDER, GRAVITY_EAST, (width + BORDER), (BORDER + TITLE_H));
-    my_add_quad_col((TITLE_H + BORDER*2), BORDER, GRAVITY_WEST, 0, 0);
-    my_add_quad_col((TITLE_H + BORDER*2), BORDER, GRAVITY_EAST, (width + BORDER), 0);
+    my_add_quad_row(width,    (TITLE_H + BORDER), GRAVITY_NORTH, 0, 0);
+    my_add_quad_row(width,                BORDER, GRAVITY_SOUTH, 0, (TITLE_H + BORDER));
+    my_add_quad_col((TITLE_H + BORDER*2), BORDER, GRAVITY_WEST,  0, 0);
+    my_add_quad_col((TITLE_H + BORDER*2), BORDER, GRAVITY_EAST,  (width + BORDER), 0);
 
     return 8;
 }
@@ -260,8 +259,6 @@ uint32_t ahsl2abgr(uint8_t a, uint8_t h, uint8_t s, uint8_t l) // Full range 0..
     return result;
 }
 
-long *decor_alloc_property_data; // = decor_alloc_property(1, WINDOW_DECORATION_TYPE_PIXMAP);
-
 static void init_decor(XID xid, int client_width, cairo_surface_t *surface, int type)
 {
     decor_quad_t quads[N_QUADS_MAX];
@@ -277,25 +274,18 @@ static void init_decor(XID xid, int client_width, cairo_surface_t *surface, int 
 
 static void draw_window_decoration(decor_t * d)
 {
-    if (d->active)
-    {
-        d->surface = d->p_active_surface;
-        d->buffer_surface = d->p_active_buffer_surface;
-    }
-    else
-    {
-        d->surface = d->p_inactive_surface;
-        d->buffer_surface = d->p_inactive_buffer_surface;
-    }
+    d->surface = d->p_surface[d->active];
+    d->buffer_surface = d->p_buffer_surface[d->active];
 
-    if (d->surface == NULL)
+    if (! d->surface)
         return;
 
     cairo_t *cr;
     cr = cairo_create(d->buffer_surface != NULL ? d->buffer_surface : d->surface);
-    if (cr == NULL)
+    if (! cr)
         return;
 
+    /* TODO Must be replaced to four lines */
     cairo_set_RGBA(cr, d->color[d->active][1]);
     cairo_rectangle(cr, 0, 0, d->client_width + BORDER * 2, TITLE_H + BORDER * 2);
     cairo_fill(cr);
@@ -320,22 +310,14 @@ static void draw_window_decoration(decor_t * d)
                 for (int y = 0; y < GRAD_H; y++)
                     gradient_pixels[x + grad_w * y] = color[(x > bayer[x%16][y%16])];
 
-            cairo_save(cr);
-            cairo_translate(cr, BORDER + grad_x, BORDER);
-            cairo_set_source_surface(cr, gradient, 0, 0);
-            cairo_rectangle(cr, 0, 0, grad_w, GRAD_H);
-            cairo_clip(cr); /* How it works? NOTE */
+            cairo_set_source_surface(cr, gradient, BORDER + grad_x, BORDER);
             cairo_paint(cr);
-            cairo_restore(cr);
             cairo_surface_destroy(gradient);
         }
 
-        cairo_save(cr);
-        cairo_translate(cr, BORDER, BORDER);
         cairo_set_RGBA(cr, d->color[d->active][0]);
-        cairo_rectangle(cr, 0, 0, grad_x, TITLE_H);
+        cairo_rectangle(cr, BORDER, BORDER, grad_x, TITLE_H);
         cairo_fill(cr);
-        cairo_restore(cr);
     }
 
     cairo_select_font_face(cr, BDF_PCF_FONT, CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_BOLD);
@@ -346,28 +328,23 @@ static void draw_window_decoration(decor_t * d)
         cairo_set_RGBA(cr, d->color[d->active][0]);
         int i;
         for (i = 0; i < 9; i++)
-            cairo_show_textXY(-1 + i%3, -1 + i/3, d->title);
+            if (i != 4)
+                cairo_show_textXY(-1 + i%3, -1 + i/3, d->title);
     }
 
     cairo_set_RGBA(cr, d->color[d->active][2]);
     cairo_show_textXY(0, 0, d->title);
 
-    if (d->icon)
+    if (d->icon_surface)
     {
-        cairo_translate(cr, BORDER, BORDER);
-        cairo_set_source(cr, d->icon);
-        cairo_rectangle(cr, 0, 0, TITLE_H, TITLE_H);
-        cairo_clip(cr);
+        cairo_set_source_surface(cr, d->icon_surface, BORDER, BORDER);
         cairo_paint(cr);
     }
 
     cairo_destroy(cr);
-    cr = NULL;
 
     cr = cairo_create(d->surface);
     cairo_set_source_surface(cr, d->buffer_surface, 0, 0);
-    cairo_rectangle(cr, 0, 0, d->client_width + BORDER * 2, TITLE_H + BORDER * 2);
-    cairo_clip(cr);
     cairo_paint(cr);
     cairo_destroy(cr);
 
@@ -480,8 +457,7 @@ static unsigned int get_mwm_prop(Window xwindow)
 }
 
 #define D decor_t *d = g_object_get_data(G_OBJECT(win), "decor");
-  /* For GTK2 only, do not remove one extra height pixel. */
-#define DECOR_SIZE (w + BORDER * 2), (TITLE_H + BORDER * 2 + 1)
+#define DECOR_SIZE (w + BORDER * 2), (TITLE_H + BORDER * 2)
 
 static void update_titlebar_windows(WnckWindow * win)
 {
@@ -500,34 +476,28 @@ static void update_titlebar_windows(WnckWindow * win)
 static void update_window_decoration_icon(WnckWindow * win)
 {
     D;
-    if (d->icon)
-    {
-        cairo_pattern_destroy(d->icon);
-        d->icon = NULL;
-    }
 
     if (d->icon_surface != NULL)
         cairo_surface_destroy(d->icon_surface);
 
     d->icon_surface = NULL;
 
-    if (d->icon_pixbuf)
-        g_object_unref(G_OBJECT(d->icon_pixbuf));
+    if (d->icon_gdkpixbuf)
+        g_object_unref(G_OBJECT(d->icon_gdkpixbuf));
 
-    d->icon_pixbuf = wnck_window_get_mini_icon(win);
+    d->icon_gdkpixbuf = wnck_window_get_mini_icon(win);
 
-    if (d->icon_pixbuf)
+    if (d->icon_gdkpixbuf)
     {
-        g_object_ref(G_OBJECT(d->icon_pixbuf));
+        g_object_ref(G_OBJECT(d->icon_gdkpixbuf));
 
-        d->icon_surface = create_surface(gdk_pixbuf_get_width(d->icon_pixbuf),
-                                         gdk_pixbuf_get_height(d->icon_pixbuf), 0);
+        d->icon_surface = create_surface(gdk_pixbuf_get_width(d->icon_gdkpixbuf),
+                                         gdk_pixbuf_get_height(d->icon_gdkpixbuf), 0);
         if (d->icon_surface && cairo_surface_get_reference_count(d->icon_surface) > 0)
         {
             cairo_t *cr = cairo_create(d->icon_surface);
-            gdk_cairo_set_source_pixbuf(cr, d->icon_pixbuf, 0, 0);
+            gdk_cairo_set_source_pixbuf(cr, d->icon_gdkpixbuf, 0, 0);
             cairo_paint(cr);
-            d->icon = cairo_pattern_create_for_surface(cairo_get_target(cr));
             cairo_destroy(cr);
         }
     }
@@ -539,86 +509,78 @@ static void update_window_decoration_state(WnckWindow * win)
     // d->state = wnck_window_get_state(win); // FIXME What it does?
 }
 
-static int update_decoration_size_or_title(WnckWindow * win)
+static void update_decoration_size_or_title(WnckWindow * win)
 {
     D;
-    cairo_surface_t *surface = NULL, *buffer_surface = NULL;
-    cairo_surface_t *isurface = NULL, *ibuffer_surface = NULL;
+    cairo_surface_t *surface[2] = {NULL, NULL}, *buffer_surface[2] = {NULL, NULL};
     gint w, h;
-    int size_changed;
     int i;
 
     wnck_window_get_client_window_geometry(win, NULL, NULL, &w, &h);
     w = MAX(w, 1);
     h = MAX(h, 0);
 
-    if ((w == d->client_width) && (h == d->client_height))
+    if ((w != d->client_width) || (h != d->client_height))
     {
-        size_changed = 0;
-        goto update_title;
-    }
-    else
-        size_changed = 1;
+        d->client_width = w;
+        d->client_height = h;
 
-    d->client_width = w;
-    d->client_height = h;
+        surface[0] = create_surface(DECOR_SIZE, 1);
+        if (surface[0] == NULL)
+            return;
 
-    surface = create_surface(DECOR_SIZE, 1);
-    if (surface == NULL)
-        return FALSE;
+        buffer_surface[0] = create_surface(DECOR_SIZE, 0);
+        if (buffer_surface[0] == NULL)
+            goto fail1;
 
-    buffer_surface = create_surface(DECOR_SIZE, 0);
-    if (buffer_surface == NULL)
-        goto fail1;
+        surface[1] = create_surface(DECOR_SIZE, 1);
+        if (surface[1] == NULL)
+            goto fail2;
 
-    isurface = create_surface(DECOR_SIZE, 1);
-    if (isurface == NULL)
-        goto fail2;
-
-    ibuffer_surface = create_surface(DECOR_SIZE, 0);
-    if (ibuffer_surface == NULL)
-    {
-        cairo_surface_destroy(isurface);
+        buffer_surface[1] = create_surface(DECOR_SIZE, 0);
+        if (buffer_surface[1] == NULL)
+        {
+            cairo_surface_destroy(surface[1]);
 fail2:
-        cairo_surface_destroy(buffer_surface);
+            cairo_surface_destroy(buffer_surface[0]);
 fail1:
-        cairo_surface_destroy(surface);
-        return FALSE;
+            cairo_surface_destroy(surface[0]);
+            return;
+        }
+
+        /* wait until old surfaces are not used for sure,
+        one second should be enough */
+        if (d->p_surface[0] != NULL)
+            g_timeout_add_seconds(1, destroy_surface_idled, d->p_surface[0]);
+        if (d->p_surface[1] != NULL)
+            g_timeout_add_seconds(1, destroy_surface_idled, d->p_surface[1]);
+
+        if (d->p_buffer_surface[0] != NULL)
+            cairo_surface_destroy(d->p_buffer_surface[0]);
+
+        if (d->p_buffer_surface[1] != NULL)
+            cairo_surface_destroy(d->p_buffer_surface[1]);
+
+        d->surface             = surface[d->active];
+        d->buffer_surface      = buffer_surface[d->active];
+        d->p_surface[0]        = surface[0];
+        d->p_buffer_surface[0] = buffer_surface[0];
+        d->p_surface[1]        = surface[1];
+        d->p_buffer_surface[1] = buffer_surface[1];
+
+        d->prop_xid = wnck_window_get_xid(win);
+
+        d->hue = d->prop_xid % 255 + 1;
+
+        /*                       ....BrigNormDark  */
+        /*  Active, Inactive:    ....A I A I A I   */
+        const uint64_t satur = 0x0000A020C410C410;
+        const uint64_t luma  = 0x0000E0C060602020;
+
+        for (i = 0; i < 6; i++)
+            d->color[i%2][i/2] = ahsl2abgr(255, d->hue, BYTE(satur, i), BYTE(luma, i));
     }
 
-    /* wait until old surfaces are not used for sure,
-       one second should be enough */
-    if (d->p_active_surface != NULL)
-        g_timeout_add_seconds(1, destroy_surface_idled, d->p_active_surface);
-    if (d->p_inactive_surface != NULL)
-        g_timeout_add_seconds(1, destroy_surface_idled, d->p_inactive_surface);
-
-    if (d->p_active_buffer_surface != NULL)
-        cairo_surface_destroy(d->p_active_buffer_surface);
-
-    if (d->p_inactive_buffer_surface != NULL)
-        cairo_surface_destroy(d->p_inactive_buffer_surface);
-
-    d->surface                   = d->active ? surface : isurface;
-    d->buffer_surface            = d->active ? buffer_surface : ibuffer_surface;
-    d->p_active_surface          = surface;
-    d->p_active_buffer_surface   = buffer_surface;
-    d->p_inactive_surface        = isurface;
-    d->p_inactive_buffer_surface = ibuffer_surface;
-
-    d->prop_xid = wnck_window_get_xid(win);
-
-    d->hue = d->prop_xid % 255 + 1;
-
-    /*                       ....BrigNormDark  */
-    /*  Active, Inactive:    ....A I A I A I   */
-    const uint64_t satur = 0x0000A020C410C410;
-    const uint64_t luma  = 0x0000E0C060602020;
-
-    for (i = 0; i < 6; i++)
-        d->color[i%2][i/2] = ahsl2abgr(255, d->hue, BYTE(satur, i), BYTE(luma, i));
-
-update_title:
     const char* title = wnck_window_get_name(win);
 
     int title_glyphs = MAX(((d->client_width - TITLE_H - BORDER) / (TITLE_H/2) - 1), 0);
@@ -645,11 +607,7 @@ update_title:
     }
     d->title[i] = '\0';
 
-
-    // if (size_changed)
-        queue_decor_draw(d);
-
-    return size_changed;
+    queue_decor_draw(d);
 }
 
 static void add_frame_window(WnckWindow * win, Window frame)
@@ -691,37 +649,31 @@ static void remove_frame_window(WnckWindow * win)
 {
     D;
 
-    if (d->p_active_surface != NULL)
-        cairo_surface_destroy(d->p_active_surface);
-    d->p_active_surface = NULL;
+    if (d->p_surface[0] != NULL)
+        cairo_surface_destroy(d->p_surface[0]);
+    d->p_surface[0] = NULL;
 
-    if (d->p_active_buffer_surface != NULL)
-        cairo_surface_destroy(d->p_active_buffer_surface);
-    d->p_active_buffer_surface = NULL;
+    if (d->p_buffer_surface[0] != NULL)
+        cairo_surface_destroy(d->p_buffer_surface[0]);
+    d->p_buffer_surface[0] = NULL;
 
-    if (d->p_inactive_surface != NULL)
-        cairo_surface_destroy(d->p_inactive_surface);
-    d->p_inactive_surface = NULL;
+    if (d->p_surface[1] != NULL)
+        cairo_surface_destroy(d->p_surface[1]);
+    d->p_surface[1] = NULL;
 
-    if (d->p_inactive_buffer_surface != NULL)
-        cairo_surface_destroy(d->p_inactive_buffer_surface);
-    d->p_inactive_buffer_surface = NULL;
-
-    if (d->icon)
-    {
-        cairo_pattern_destroy(d->icon);
-        d->icon = NULL;
-    }
+    if (d->p_buffer_surface[1] != NULL)
+        cairo_surface_destroy(d->p_buffer_surface[1]);
+    d->p_buffer_surface[1] = NULL;
 
     if (d->icon_surface != NULL)
         cairo_surface_destroy(d->icon_surface);
 
     d->icon_surface = NULL;
 
-    if (d->icon_pixbuf)
+    if (d->icon_gdkpixbuf)
     {
-        g_object_unref(G_OBJECT (d->icon_pixbuf));
-        d->icon_pixbuf = NULL;
+        g_object_unref(G_OBJECT (d->icon_gdkpixbuf));
+        d->icon_gdkpixbuf = NULL;
     }
 
     d->client_width = d->client_height = d->decorated = 0;
@@ -763,8 +715,7 @@ static void window_state_changed(WnckWindow * win)
     update_decoration_size_or_title(win);
     update_titlebar_windows(win);
 
-    d->prop_xid = wnck_window_get_xid(win);
-    // queue_decor_draw(d);
+    // d->prop_xid = wnck_window_get_xid(win);
 }
 
 static void active_window_changed_1(WnckWindow *win)
@@ -775,8 +726,8 @@ static void active_window_changed_1(WnckWindow *win)
         if (d != NULL && d->surface != NULL && d->decorated)
         {
             d->active = wnck_window_is_active(win);
-            if (!g_slist_find(draw_list, d))
-                d->prop_xid = wnck_window_get_xid(win);
+            // if (!g_slist_find(draw_list, d))
+            //     d->prop_xid = wnck_window_get_xid(win);
             queue_decor_draw(d);
         }
     }
@@ -1011,7 +962,7 @@ static GdkFilterReturn event_filter_func(GdkXEvent * gdkxevent, GdkEvent * event
                 unsigned long action;
 
                 action = xevent->xclient.data.l[0];
-                if (action == toolkit_action_window_menu_atom)
+                if (action == toolkit_menu_atom)
                 {
                     WnckWindow *win;
 
@@ -1079,7 +1030,7 @@ int main(int argc, char *argv[])
         if (locale && (strstr(locale, "UTF") || strstr(locale, "utf")))
             utf = 1;
         else
-            printf("%s: LC_MESSAGES set to single-byte: '%s'\n", argv[0], locale);
+            printf("%s: LC_MESSAGES set to single-byte: '%s'\n", program_name, locale);
     }
 
     Py_Initialize();
@@ -1127,9 +1078,9 @@ int main(int argc, char *argv[])
     for (int x = 0; x < 16; x++)
         for (int y = 0; y < 16; y++)
             bayer[x][y] = ((!!(y & 8) *   2 - !!(x & 8) *  1) &   3)
-                    + ((!!(y & 4) *   8 - !!(x & 4) *  4) &  12)
-                    + ((!!(y & 2) *  32 - !!(x & 2) * 16) &  48)
-                    + ((!!(y & 1) * 128 - !!(x & 1) * 64) & 192);
+                        + ((!!(y & 4) *   8 - !!(x & 4) *  4) &  12)
+                        + ((!!(y & 2) *  32 - !!(x & 2) * 16) &  48)
+                        + ((!!(y & 1) * 128 - !!(x & 1) * 64) & 192);
 
     signal(SIGTERM, signal_handler);
     signal(SIGINT, signal_handler);
@@ -1137,24 +1088,23 @@ int main(int argc, char *argv[])
     gtk_init(&argc, &argv);
 
     gdkdisplay = gdk_display_get_default();
-    gdkscreen = gdk_display_get_default_screen(gdkdisplay);
-    xdisplay = gdk_x11_display_get_xdisplay(gdkdisplay);
-    xroot = RootWindowOfScreen(gdk_x11_screen_get_xscreen(gdkscreen));
+    gdkscreen  = gdk_display_get_default_screen(gdkdisplay);
+    xdisplay   = gdk_x11_display_get_xdisplay(gdkdisplay);
+    xroot      = RootWindowOfScreen(gdk_x11_screen_get_xscreen(gdkscreen));
+
     gdk_error_trap_push();
 
     frame_window_atom   = XInternAtom(xdisplay, DECOR_INPUT_FRAME_ATOM_NAME, FALSE);
     win_decor_atom      = XInternAtom(xdisplay, DECOR_WINDOW_ATOM_NAME, FALSE);
     active_atom         = XInternAtom(xdisplay, DECOR_ACTIVE_ATOM_NAME, FALSE);
+    // select_window_atom = XInternAtom(xdisplay, DECOR_SWITCH_WINDOW_ATOM_NAME, FALSE);
     wm_move_resize_atom = XInternAtom(xdisplay, "_NET_WM_MOVERESIZE", FALSE);
     restack_window_atom = XInternAtom(xdisplay, "_NET_RESTACK_WINDOW", FALSE);
-    // select_window_atom = XInternAtom(xdisplay, DECOR_SWITCH_WINDOW_ATOM_NAME, FALSE);
     mwm_hints_atom      = XInternAtom(xdisplay, "_MOTIF_WM_HINTS", FALSE);
     wm_protocols_atom   = XInternAtom(xdisplay, "WM_PROTOCOLS", FALSE);
 
     toolkit_action_atom = XInternAtom(xdisplay, "_COMPIZ_TOOLKIT_ACTION", FALSE);
-    toolkit_action_window_menu_atom = XInternAtom(xdisplay, "_COMPIZ_TOOLKIT_ACTION_WINDOW_MENU", FALSE);
-
-    emerald_sigusr1_atom = XInternAtom(xdisplay, "emerald-sigusr1", FALSE);
+    toolkit_menu_atom   = XInternAtom(xdisplay, "_COMPIZ_TOOLKIT_ACTION_WINDOW_MENU", FALSE);
 
     int status = decor_acquire_dm_session(xdisplay, DefaultScreen(xdisplay), PACKAGE, replace, &dm_sn_timestamp);
 
@@ -1191,11 +1141,11 @@ int main(int argc, char *argv[])
     gdk_window_add_filter(NULL, event_filter_func, NULL);
 
     g_signal_connect_object(G_OBJECT(wnck_screen), "active_window_changed",
-                                    G_CALLBACK(active_window_changed), 0, 0);
+                                         G_CALLBACK(active_window_changed), 0, 0);
     g_signal_connect_object(G_OBJECT(wnck_screen), "window_opened",
-                                    G_CALLBACK(window_opened),         0, 0);
+                                         G_CALLBACK(window_opened),         0, 0);
     g_signal_connect_object(G_OBJECT(wnck_screen), "window_closed",
-                                    G_CALLBACK(window_closed),         0, 0);
+                                         G_CALLBACK(window_closed),         0, 0);
 
     window_popup = gtk_window_new(GTK_WINDOW_POPUP);
     gtk_widget_realize(window_popup);
@@ -1205,11 +1155,13 @@ int main(int argc, char *argv[])
     Atom bareAtom = XInternAtom(xdisplay, DECOR_BARE_ATOM_NAME, FALSE);
     XDeleteProperty(xdisplay, xroot, bareAtom);
 
-    int w = 0;
-    cairo_surface_t *temp_surface = create_surface(DECOR_SIZE, 1);
+    cairo_surface_t *temp_surface = create_surface(1, 1, 1);
 
     if (! temp_surface)
+    {
+        fprintf(stderr, "%s: Cairo can't create surfaces.\n", program_name);
         return 1;
+    }
 
     decor_alloc_property_data = decor_alloc_property(1, WINDOW_DECORATION_TYPE_PIXMAP);
 
