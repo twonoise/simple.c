@@ -11,8 +11,8 @@
 #define ICON_SZ      "16"  // Popup Menu icons: 16, 24, 32, 48, scalable.
 #define ICONS_PATH   "/root/.icons/Chicago95/actions/"ICON_SZ
 #define BDF_PCF_FONT "xos4 Terminus"  // No .otb and non-bitmaps, please.
-#define ACTIONS      "'Mi&nimize', 'Ma&ximize', '&Restore', '&Move','Re&size','&Close'"
-#define ACT_ICONS    "'window-minimize', 'window-maximize', 'window-restore', '-','image-crop','process-stop'"
+#define ACTIONS      "'Mi&nimize', 'Ma&ximize', '&Restore', '&Move', 'Re&size', 'Copy &Info', '&Close'"
+#define ACT_ICONS    "'window-minimize', 'window-maximize', 'window-restore', '-', 'image-crop', 'edit-copy', 'process-stop'"
 
 // Huge memory leak is unavoidable. https://github.com/python/cpython/issues/100773
 // Total 2,95 Mb PyQt5 and 1,76 Mb PyQt6!
@@ -56,6 +56,7 @@ typedef struct _decor
     uint8_t          hue;
     uint32_t         color[2][3];
     gchar            title[MAX_TITLE_STRLEN]; /* In bytes, not UTF glyphs */
+    char             process[PATH_MAX];
     GdkPixbuf       *icon_gdkpixbuf;
     cairo_surface_t *icon_surface;
     cairo_surface_t *surface;
@@ -90,6 +91,7 @@ Window      xroot;
 
 int utf;
 uint8_t bayer[16][16];
+int double_click_timeout;
 
 PyObject *pArgs, *pFunc;
 long int retValue = -2;
@@ -280,12 +282,11 @@ static void draw_window_decoration(decor_t * d)
     if (! d->surface)
         return;
 
-    cairo_t *cr;
-    cr = cairo_create(d->buffer_surface != NULL ? d->buffer_surface : d->surface);
+    cairo_t *cr = cairo_create(d->buffer_surface != NULL ? d->buffer_surface : d->surface);
     if (! cr)
         return;
 
-    /* TODO Must be replaced to four lines */
+    /* TODO Must be replaced to contour only */
     cairo_set_RGBA(cr, d->color[d->active][1]);
     cairo_rectangle(cr, 0, 0, d->client_width + BORDER * 2, TITLE_H + BORDER * 2);
     cairo_fill(cr);
@@ -458,29 +459,13 @@ static unsigned int get_mwm_prop(Window xwindow)
 
 #define D decor_t *d = g_object_get_data(G_OBJECT(win), "decor");
 #define DECOR_SIZE (w + BORDER * 2), (TITLE_H + BORDER * 2)
-
-static void update_titlebar_windows(WnckWindow * win)
-{
-    D;
-    gint x0, y0, width, height;
-
-    wnck_window_get_client_window_geometry(win, &x0, &y0, &width, &height);
-
-    gdk_error_trap_push();
-    XMapWindow(xdisplay, d->titlebar_window);
-    XMoveResizeWindow(xdisplay, d->titlebar_window, BORDER, BORDER, width, TITLE_H);
-    XSync(xdisplay, FALSE);
-    (void) gdk_error_trap_pop();
-}
+#define DESTROY(s) { if (d->s != NULL) { cairo_surface_destroy(d->s); } d->s = NULL; }
 
 static void update_window_decoration_icon(WnckWindow * win)
 {
-    D;
+    D; // NOTE Should be DR ?
 
-    if (d->icon_surface != NULL)
-        cairo_surface_destroy(d->icon_surface);
-
-    d->icon_surface = NULL;
+    DESTROY(icon_surface);
 
     if (d->icon_gdkpixbuf)
         g_object_unref(G_OBJECT(d->icon_gdkpixbuf));
@@ -511,19 +496,31 @@ static void update_window_decoration_state(WnckWindow * win)
 
 static void update_decoration_size_or_title(WnckWindow * win)
 {
-    D;
-    cairo_surface_t *surface[2] = {NULL, NULL}, *buffer_surface[2] = {NULL, NULL};
+    D; // NOTE Should be DR ?
     gint w, h;
+    int repaint = 0;
     int i;
 
+    /* BUG For xterm, wrong width (at least) returned, less 2 px, both WNCK1 & 3. */
     wnck_window_get_client_window_geometry(win, NULL, NULL, &w, &h);
+    if (strstr(d->process, "xterm"))
+        w = w + 2;
+
     w = MAX(w, 1);
     h = MAX(h, 0);
 
     if ((w != d->client_width) || (h != d->client_height))
     {
+        cairo_surface_t *surface[2] = {NULL, NULL}, *buffer_surface[2] = {NULL, NULL};
+
         d->client_width = w;
         d->client_height = h;
+
+        gdk_error_trap_push();
+        XMapWindow(xdisplay, d->titlebar_window);
+        XMoveResizeWindow(xdisplay, d->titlebar_window, BORDER, BORDER, d->client_width, TITLE_H);
+        XSync(xdisplay, FALSE);
+        (void) gdk_error_trap_pop();
 
         surface[0] = create_surface(DECOR_SIZE, 1);
         if (surface[0] == NULL)
@@ -555,11 +552,8 @@ fail1:
         if (d->p_surface[1] != NULL)
             g_timeout_add_seconds(1, destroy_surface_idled, d->p_surface[1]);
 
-        if (d->p_buffer_surface[0] != NULL)
-            cairo_surface_destroy(d->p_buffer_surface[0]);
-
-        if (d->p_buffer_surface[1] != NULL)
-            cairo_surface_destroy(d->p_buffer_surface[1]);
+        DESTROY(p_buffer_surface[0]);
+        DESTROY(p_buffer_surface[1]);
 
         d->surface             = surface[d->active];
         d->buffer_surface      = buffer_surface[d->active];
@@ -579,6 +573,8 @@ fail1:
 
         for (i = 0; i < 6; i++)
             d->color[i%2][i/2] = ahsl2abgr(255, d->hue, BYTE(satur, i), BYTE(luma, i));
+
+        repaint = 1;
     }
 
     const char* title = wnck_window_get_name(win);
@@ -596,42 +592,64 @@ fail1:
                 if (++glyphs > title_glyphs)
                     break;
 
-            d->title[i] = title[i];
+            if (d->title[i] != title[i])
+            {
+                d->title[i] = title[i];
+                repaint = 1;
+            }
             i++;
         }
+        repaint = repaint || (d->title[i] != '\0');
     }
     else
     {
         i = MIN(MAX_TITLE_STRLEN, title_glyphs);
+        repaint = strncmp(d->title, title, i);
         strncpy(d->title, title, i);
     }
     d->title[i] = '\0';
 
-    queue_decor_draw(d);
+    if (repaint)
+        queue_decor_draw(d);
 }
 
 static void add_frame_window(WnckWindow * win, Window frame)
 {
-    XSetWindowAttributes attr;
-    gulong xid = wnck_window_get_xid(win);
     D;
-
     d->active = wnck_window_is_active(win);
 
+    XSetWindowAttributes attr;
     memset(&attr, 0, sizeof(XSetWindowAttributes));
 
-    attr.event_mask = ButtonPressMask; // NOTE or ButtonPressMask | EnterWindowMask | LeaveWindowMask;
+    attr.event_mask = ButtonPressMask;
     attr.override_redirect = 1;
 
     gdk_error_trap_push();
 
     d->titlebar_window = XCreateWindow(xdisplay, frame, 0, 0, 1, 1, 0, CopyFromParent, CopyFromParent, CopyFromParent, CWOverrideRedirect | CWEventMask, &attr);
 
-    // NOTE attr.event_mask |= ButtonReleaseMask;
-
     XSync(xdisplay, FALSE);
     if (! gdk_error_trap_pop())
     {
+        int pid = wnck_window_get_pid (win);
+        if (! pid)
+            pid = wnck_application_get_pid(wnck_window_get_application(win));
+
+        sprintf(d->process, "/proc/%d/cmdline", pid);  /* Reuse memory */
+
+        int n = 0;
+        char c;
+        FILE *fp = fopen(d->process, "r");
+        if (fp) {
+            while (((c = fgetc(fp)) != EOF) && (n < (PATH_MAX - 1)))
+                d->process[n++] = (c == '\0' ? ' ' : c);
+            d->process[n] = 0;
+            fclose(fp);
+        }
+        if (n == 0)
+            strcpy(d->process, "(unknown)");
+
+        gulong xid = wnck_window_get_xid(win);
         d->decorated = (get_mwm_prop(xid) & (MWM_DECOR_ALL | MWM_DECOR_TITLE));
 
         g_hash_table_insert(frame_table, GUINT_TO_POINTER(d->titlebar_window), GUINT_TO_POINTER(xid));
@@ -639,7 +657,6 @@ static void add_frame_window(WnckWindow * win, Window frame)
         update_window_decoration_state(win);
         update_window_decoration_icon(win);
         update_decoration_size_or_title(win);
-        update_titlebar_windows(win);
     }
     else
         memset((void *)d->titlebar_window, 0, sizeof(d->titlebar_window));
@@ -649,26 +666,11 @@ static void remove_frame_window(WnckWindow * win)
 {
     D;
 
-    if (d->p_surface[0] != NULL)
-        cairo_surface_destroy(d->p_surface[0]);
-    d->p_surface[0] = NULL;
-
-    if (d->p_buffer_surface[0] != NULL)
-        cairo_surface_destroy(d->p_buffer_surface[0]);
-    d->p_buffer_surface[0] = NULL;
-
-    if (d->p_surface[1] != NULL)
-        cairo_surface_destroy(d->p_surface[1]);
-    d->p_surface[1] = NULL;
-
-    if (d->p_buffer_surface[1] != NULL)
-        cairo_surface_destroy(d->p_buffer_surface[1]);
-    d->p_buffer_surface[1] = NULL;
-
-    if (d->icon_surface != NULL)
-        cairo_surface_destroy(d->icon_surface);
-
-    d->icon_surface = NULL;
+    DESTROY(p_surface[0]);
+    DESTROY(p_buffer_surface[0]);
+    DESTROY(p_surface[1]);
+    DESTROY(p_buffer_surface[1]);
+    DESTROY(icon_surface);
 
     if (d->icon_gdkpixbuf)
     {
@@ -676,7 +678,7 @@ static void remove_frame_window(WnckWindow * win)
         d->icon_gdkpixbuf = NULL;
     }
 
-    d->client_width = d->client_height = d->decorated = 0;
+    d->client_width = d->client_height = d->title[0] = d->decorated = 0;
     draw_list = g_slist_remove(draw_list, d);
 }
 
@@ -691,14 +693,7 @@ static void window_name_changed(WnckWindow * win)
 static void window_geometry_changed(WnckWindow * win)
 {
     DR;
-    int w, h;
-    wnck_window_get_client_window_geometry(win, NULL, NULL, &w, &h);
-
-    if ((w != d->client_width) || (h != d->client_height))
-    {
-        update_decoration_size_or_title(win);
-        update_titlebar_windows(win);
-    }
+    update_decoration_size_or_title(win);
 }
 
 static void window_icon_changed(WnckWindow * win)
@@ -713,7 +708,6 @@ static void window_state_changed(WnckWindow * win)
     DR;
     update_window_decoration_state(win);
     update_decoration_size_or_title(win);
-    update_titlebar_windows(win);
 
     // d->prop_xid = wnck_window_get_xid(win);
 }
@@ -800,7 +794,7 @@ static void move_resize_restack_window(WnckWindow * win, Atom atom, int l0, int 
 
     if (time)
     {
-        XUngrabPointer(xdisplay,  (Time) time);
+        XUngrabPointer (xdisplay, (Time) time);
         XUngrabKeyboard(xdisplay, (Time) time);
     }
 
@@ -826,7 +820,7 @@ static void move_resize_restack_window(WnckWindow * win, Atom atom, int l0, int 
 static void action_menu_map(WnckWindow *win, XEvent *xevent)
 {
     /* Check if previous menu is still displayed */
-    if (retValue == -3)
+    if ((retValue == -3) || (! win))
         return;
 
     gint x, y;
@@ -868,6 +862,13 @@ static void action_menu_map(WnckWindow *win, XEvent *xevent)
             wnck_window_keyboard_size(win);
             break;
         case 5:
+            D;
+            char str[MAX_TITLE_STRLEN + PATH_MAX + 2];
+            sprintf(str, "%s\n%s\n", d->title, d->process);
+            GtkClipboard* clipboard = gtk_clipboard_get(GDK_SELECTION_CLIPBOARD);
+            gtk_clipboard_set_text(clipboard, str, -1);
+            break;
+        case 6:
             wnck_window_close(win, (guint32) xevent->xbutton.time);
             break;
         default:
@@ -890,10 +891,6 @@ static void title_event        (WnckWindow *win, XEvent *xevent, GdkXEvent *gdkx
     if (xevent->xbutton.x <= (BORDER + TITLE_H))  /* Window Icon */
         action_menu_map(win, xevent);
     else if (xevent->xbutton.button == 1)
-    {
-        gint double_click_timeout = 0;
-        g_object_get(G_OBJECT(gtk_settings_get_for_screen(gtk_widget_get_screen(window_popup))), "gtk-double-click-time", &double_click_timeout, NULL);
-
         if (xevent->xbutton.button == last_button_num &&
             xevent->xbutton.window == last_button_xwindow &&
             xevent->xbutton.time   <  last_button_time + double_click_timeout)
@@ -912,13 +909,11 @@ static void title_event        (WnckWindow *win, XEvent *xevent, GdkXEvent *gdkx
             move_resize_restack_window(win, restack_window_atom, 2, None, Above, 0, 0, 0);
             move_resize_restack_window(win, wm_move_resize_atom, xevent->xbutton.x_root, xevent->xbutton.y_root, 8, xevent->xbutton.button, 1, xevent->xbutton.time); // 8 is WM_MOVERESIZE_MOVE
         }
-    }
     else if (xevent->xbutton.button == 2)
         WNCK_MAX_UNMAX;
     else if (xevent->xbutton.button == 3)
         action_menu_map(win, xevent);
 }
-
 
 static GdkFilterReturn event_filter_func(GdkXEvent * gdkxevent, GdkEvent * event, gpointer data)
 {
@@ -956,49 +951,35 @@ static GdkFilterReturn event_filter_func(GdkXEvent * gdkxevent, GdkEvent * event
         case DestroyNotify:
             g_hash_table_remove(frame_table, GUINT_TO_POINTER(xevent->xany.window));
             break;
-        case ClientMessage:
-            if (xevent->xclient.message_type == toolkit_action_atom)
-            {
-                unsigned long action;
-
-                action = xevent->xclient.data.l[0];
-                if (action == toolkit_menu_atom)
-                {
-                    WnckWindow *win;
-
-                    win = wnck_window_get(xevent->xany.window);
-                    if (win)
-                        /* Alt+Space */
-                        action_menu_map(win, xevent);
-                }
-            }
+        case ClientMessage:  /* Alt+Space */
+            if ((xevent->xclient.message_type == toolkit_action_atom) &&
+                (xevent->xclient.data.l[0] == toolkit_menu_atom))
+                    action_menu_map(wnck_window_get(xevent->xany.window), xevent);
             break;
         default:
             break;
     }
+
     if (xid != None)
     {
-        WnckWindow *win;
-
-        win = wnck_window_get(xid);
+        WnckWindow *win = wnck_window_get(xid);
         if (win)
         {
             static event_callback callback = title_event;
             D;
 
-            if (d->decorated)
-                if (d->titlebar_window == xevent->xany.window)
-                    (*callback) (win, xevent, gdkxevent);
+            if ((d->decorated) && (d->titlebar_window == xevent->xany.window))
+                (*callback) (win, xevent, gdkxevent);
         }
     }
+
     return GDK_FILTER_CONTINUE;
 }
 
 static void signal_handler(int sig)
 {
-  exit(1);
+    exit(1);
 }
-
 
 
 int main(int argc, char *argv[])
@@ -1041,7 +1022,7 @@ int main(int argc, char *argv[])
         "from PyQt6.QtGui import QIcon\n"
         "app = QApplication([])\n"
         "def windowActionsMenu(x, y):\n"
-        "  q = 6\n"
+        "  q = 7\n"
         "  n = ["ACTIONS"]\n"
         "  p = ["ACT_ICONS"]\n"
         "  m = QMenu()\n"
@@ -1149,6 +1130,7 @@ int main(int argc, char *argv[])
 
     window_popup = gtk_window_new(GTK_WINDOW_POPUP);
     gtk_widget_realize(window_popup);
+    g_object_get(G_OBJECT(gtk_settings_get_for_screen(gtk_widget_get_screen(window_popup))), "gtk-double-click-time", &double_click_timeout, NULL);
 
     decor_set_dm_check_hint(xdisplay, DefaultScreen(xdisplay), WINDOW_DECORATION_TYPE_PIXMAP);
 
@@ -1177,9 +1159,8 @@ int main(int argc, char *argv[])
 
         if (d->decorated)
         {
-            d->client_width = d->client_height = 0;
+            d->client_width = d->client_height = d->title[0] = 0;
             update_decoration_size_or_title(WNCK_WINDOW(windows->data));
-            update_titlebar_windows(WNCK_WINDOW(windows->data));
         }
         windows = windows->next;
     }
