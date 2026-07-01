@@ -2,15 +2,15 @@
 /* Std: C99. Based on: Emerald, Copyright 2006 Novell, Inc., License: GPL2+ */
 
 #define PACKAGE      "simple"
-#define VERSION      "0.8.18.1"  // Will work with Compiz 0.9.14.2 also.
+#define VERSION      "0.8.18.1"  /* Will work with Compiz 0.9.14.2 also. */
 
 #define BORDER       1
 #define TITLE_H      16
 #define GRAD_W       256
 #define GRAD_H       TITLE_H
-#define ICON_SZ      "16"  // Popup Menu icons: 16, 24, 32, 48, scalable.
+#define ICON_SZ      "16"        /* Popup Menu icons: 16, 24, 32, 48, scalable. */
 #define ICONS_PATH   "/root/.icons/Chicago95/actions/"ICON_SZ
-#define BDF_PCF_FONT "xos4 Terminus"  // No .otb and non-bitmaps, please.
+#define BDF_PCF_FONT "xos4 Terminus"  /* No .otb and non-bitmaps, please. */
 #define ACTIONS      "'Mi&nimize', 'Ma&ximize', '&Restore', '&Move', 'Re&size', 'Copy &Info', '&Close'"
 #define ACT_ICONS    "'window-minimize', 'window-maximize', 'window-restore', '-', 'image-crop', 'edit-copy', 'process-stop'"
 
@@ -56,6 +56,7 @@ typedef struct _decor
     uint8_t          hue;
     uint32_t         color[2][3];
     gchar            title[MAX_TITLE_STRLEN]; /* In bytes, not UTF glyphs */
+    int              title_glyphs;
     char             process[PATH_MAX];
     GdkPixbuf       *icon_gdkpixbuf;
     cairo_surface_t *icon_surface;
@@ -97,20 +98,20 @@ PyObject *pArgs, *pFunc;
 long int retValue = -2;
 
 
-static cairo_surface_t *create_surface(int w, int h, int isImageOrXlib)
+static cairo_surface_t *create_surface(int w, int h, int type)
 {
     cairo_surface_t *surface;
 
     if (w <= 0 || h <= 0)
         return NULL;
 
-    if (isImageOrXlib) /* Xlib */
+    if (type)  /* Xlib */
 #ifdef GTK3
         surface = gdk_window_create_similar_surface(WIN_POPUP, CAIRO_CONTENT_COLOR_ALPHA, w, h);
 #else
         surface = gdk_window_create_similar_surface(WIN_POPUP, CAIRO_CONTENT_COLOR_ALPHA, w, h + 1); /* BUG One extra pixel for GDK2 only, looks like critical bug. */
 #endif
-    else               /* Image */
+    else      /* Image */
 #ifdef GTK3
         surface = gdk_window_create_similar_image_surface(WIN_POPUP, CAIRO_FORMAT_ARGB32, w, h, 0);
 #else
@@ -261,7 +262,7 @@ uint32_t ahsl2abgr(uint8_t a, uint8_t h, uint8_t s, uint8_t l) // Full range 0..
     return result;
 }
 
-static void init_decor(XID xid, int client_width, cairo_surface_t *surface, int type)
+static int init_decor(XID xid, int client_width, cairo_surface_t *surface, int type)
 {
     decor_quad_t quads[N_QUADS_MAX];
     unsigned int nQuad = my_set_window_quads(quads, client_width);
@@ -271,11 +272,12 @@ static void init_decor(XID xid, int client_width, cairo_surface_t *surface, int 
 
     gdk_error_trap_push();
     XChangeProperty(xdisplay, xid, type ? win_decor_atom : active_atom, XA_INTEGER, 32, PropModeReplace, (guchar *) decor_alloc_property_data, PROP_HEADER_SIZE + BASE_PROP_SIZE + QUAD_PROP_SIZE * N_QUADS_MAX);
-    (void) gdk_error_trap_pop();
+    return gdk_error_trap_pop();
 }
 
 static void draw_window_decoration(decor_t * d)
 {
+    int i;
     d->surface = d->p_surface[d->active];
     d->buffer_surface = d->p_buffer_surface[d->active];
 
@@ -286,15 +288,18 @@ static void draw_window_decoration(decor_t * d)
     if (! cr)
         return;
 
-    /* TODO Must be replaced to contour only */
     cairo_set_RGBA(cr, d->color[d->active][1]);
-    cairo_rectangle(cr, 0, 0, d->client_width + BORDER * 2, TITLE_H + BORDER * 2);
-    cairo_fill(cr);
+    for (i = 0; i < BORDER; i++)
+    {
+        cairo_rectangle(cr, i, i, d->client_width+(BORDER-i)*2, TITLE_H+(BORDER-i)*2);
+        cairo_stroke(cr);
+    }
+
+    int grad_x = MAX(TITLE_H + BORDER, d->client_width - GRAD_W);
+    int grad_w = MIN(GRAD_W, d->client_width - BORDER - TITLE_H);
 
     if (d->active)
     {
-        int grad_x = MAX(TITLE_H + BORDER, d->client_width - GRAD_W);
-        int grad_w = MIN(GRAD_W, d->client_width - BORDER - TITLE_H);
 
         if (grad_w > 0)
         {
@@ -315,19 +320,18 @@ static void draw_window_decoration(decor_t * d)
             cairo_paint(cr);
             cairo_surface_destroy(gradient);
         }
-
-        cairo_set_RGBA(cr, d->color[d->active][0]);
-        cairo_rectangle(cr, BORDER, BORDER, grad_x, TITLE_H);
-        cairo_fill(cr);
     }
+
+    cairo_set_RGBA(cr, d->color[d->active][0]);
+    cairo_rectangle(cr, BORDER, BORDER, d->active ? grad_x : d->client_width, TITLE_H);
+    cairo_fill(cr);
 
     cairo_select_font_face(cr, BDF_PCF_FONT, CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_BOLD);
     cairo_set_font_size(cr, TITLE_H);
 
-    if (1) // FIXME make only when necessary (gradient overlay)
+    if ((d->active) && ((d->title_glyphs * (TITLE_H/2) + TITLE_H + BORDER) > grad_x))
     {
         cairo_set_RGBA(cr, d->color[d->active][0]);
-        int i;
         for (i = 0; i < 9; i++)
             if (i != 4)
                 cairo_show_textXY(-1 + i%3, -1 + i/3, d->title);
@@ -457,7 +461,7 @@ static unsigned int get_mwm_prop(Window xwindow)
     return decor;
 }
 
-#define D decor_t *d = g_object_get_data(G_OBJECT(win), "decor");
+#define D decor_t *d = g_object_get_data(G_OBJECT(win), "decor")
 #define DECOR_SIZE (w + BORDER * 2), (TITLE_H + BORDER * 2)
 #define DESTROY(s) { if (d->s != NULL) { cairo_surface_destroy(d->s); } d->s = NULL; }
 
@@ -501,10 +505,11 @@ static void update_decoration_size_or_title(WnckWindow * win)
     int repaint = 0;
     int i;
 
-    /* BUG For xterm, wrong width (at least) returned, less 2 px, both WNCK1 & 3. */
     wnck_window_get_client_window_geometry(win, NULL, NULL, &w, &h);
-    if (strstr(d->process, "xterm"))
-        w = w + 2;
+
+    /* BUG For xterm, wrong width (at least) returned, less 2 px, both WNCK1 & 3. */
+    // if (strstr(d->process, "xterm"))
+    //     w = w + 2;
 
     w = MAX(w, 1);
     h = MAX(h, 0);
@@ -515,12 +520,6 @@ static void update_decoration_size_or_title(WnckWindow * win)
 
         d->client_width = w;
         d->client_height = h;
-
-        gdk_error_trap_push();
-        XMapWindow(xdisplay, d->titlebar_window);
-        XMoveResizeWindow(xdisplay, d->titlebar_window, BORDER, BORDER, d->client_width, TITLE_H);
-        XSync(xdisplay, FALSE);
-        (void) gdk_error_trap_pop();
 
         surface[0] = create_surface(DECOR_SIZE, 1);
         if (surface[0] == NULL)
@@ -568,8 +567,8 @@ fail1:
 
         /*                       ....BrigNormDark  */
         /*  Active, Inactive:    ....A I A I A I   */
-        const uint64_t satur = 0x0000A020C410C410;
-        const uint64_t luma  = 0x0000E0C060602020;
+        const uint64_t satur = 0x0000A000C410C400;
+        const uint64_t luma  = 0x0000E08060602020;
 
         for (i = 0; i < 6; i++)
             d->color[i%2][i/2] = ahsl2abgr(255, d->hue, BYTE(satur, i), BYTE(luma, i));
@@ -579,7 +578,7 @@ fail1:
 
     const char* title = wnck_window_get_name(win);
 
-    int title_glyphs = MAX(((d->client_width - TITLE_H - BORDER) / (TITLE_H/2) - 1), 0);
+    d->title_glyphs = MAX(((d->client_width - TITLE_H - BORDER) / (TITLE_H/2) - 1), 0);
 
     if (utf)
     {
@@ -589,7 +588,7 @@ fail1:
         while ((title[i]) && (i < (MAX_TITLE_STRLEN - 1)))
         {
             if ((title[i] & 0xC0) != 0x80)
-                if (++glyphs > title_glyphs)
+                if (++glyphs > d->title_glyphs)
                     break;
 
             if (d->title[i] != title[i])
@@ -599,15 +598,22 @@ fail1:
             }
             i++;
         }
+        d->title_glyphs = glyphs;
         repaint = repaint || (d->title[i] != '\0');
     }
     else
     {
-        i = MIN(MAX_TITLE_STRLEN, title_glyphs);
+        i = MIN(MAX_TITLE_STRLEN, d->title_glyphs);
         repaint = strncmp(d->title, title, i);
         strncpy(d->title, title, i);
     }
     d->title[i] = '\0';
+
+    gdk_error_trap_push();
+    XMapWindow(xdisplay, d->titlebar_window);
+    XMoveResizeWindow(xdisplay, d->titlebar_window, BORDER, BORDER, d->client_width, TITLE_H);
+    XSync(xdisplay, FALSE);
+    i = gdk_error_trap_pop();
 
     if (repaint)
         queue_decor_draw(d);
@@ -759,17 +765,15 @@ static void window_opened(WnckScreen *screen, WnckWindow *win)
         add_frame_window(win, window);
 }
 
-static void window_closed(WnckScreen * screen, WnckWindow *win)
+static int window_closed(WnckScreen * screen, WnckWindow *win)
 {
     D;
     gdk_error_trap_push();
     XDeleteProperty(xdisplay, wnck_window_get_xid(win), win_decor_atom);
     XSync(xdisplay, FALSE);
-    (void) gdk_error_trap_pop();
-
     g_object_set_data(G_OBJECT(win), "decor", NULL);
-
     g_free(d);
+    return gdk_error_trap_pop();
 }
 
 static void move_resize_restack_window(WnckWindow * win, Atom atom, int l0, int l1, int l2, int l3, int l4, guint32 time)
@@ -1176,7 +1180,7 @@ int main(int argc, char *argv[])
     g_clear_object (&wnck_handle);
 #endif
 
-    (void) gdk_error_trap_pop();
+    i = gdk_error_trap_pop();
 
     Py_XDECREF(pFunc);
     PyGC_Collect();
