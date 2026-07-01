@@ -4,6 +4,8 @@ simple.c is window decorator for X11, Linux, LXQT, XFCE, &amp; more
 Background
 ==========
 
+> I hope that some criticism you'll read here, is not repels from use this code, and, it is not for judge what is good or bad. I am just try to make things a bit better, and it is impossible without pointing to imperfections. With huge respect to all devs, who creates all this wonderfull FOSS stuff day & night and most often for little to no thanks (so, firstly, thanks to you all!).
+
 This research have a decades long background story of progressively annoying intentional deprecations of essential mechanisms of popular Desktop Environments, at the point of view of everyday, many hours per day use and correspond eye health care.
 
 More or less useful DEs for complex everyday work are mostly based on two essentially different tool kits, which are GTK and Qt.
