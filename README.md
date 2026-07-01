@@ -81,11 +81,13 @@ or
 
 * Compile:
 
-    `gcc -Wall -Wno-unused-result -lX11 -I/usr/include/compiz/ -ldecoration -I/usr/include/libwnck-1.0/ -lwnck-1 -I/usr/include/python3.14 -lpython3.14 `pkg-config --cflags --libs gtk+-2.0` simple.c -o simple`
+_
+
+    gcc -Wall -Wno-unused-result -lX11 -I/usr/include/compiz/ -ldecoration -I/usr/include/libwnck-1.0/ -lwnck-1 -I/usr/include/python3.14 -lpython3.14 `pkg-config --cflags --libs gtk+-2.0` simple.c -o /usr/local/bin/simple
 
 or
 
-    gcc -DGTK3 -Wall -Wno-unused-result -lX11 -I/usr/include/compiz/ -ldecoration -I/usr/include/libwnck-3.0/ -lwnck-3 -I/usr/include/python3.14 -lpython3.14 `pkg-config --cflags --libs gtk+-3.0` simple.c -o simple
+    gcc -DGTK3 -Wall -Wno-unused-result -lX11 -I/usr/include/compiz/ -ldecoration -I/usr/include/libwnck-3.0/ -lwnck-3 -I/usr/include/python3.14 -lpython3.14 `pkg-config --cflags --libs gtk+-3.0` simple.c -o /usr/local/bin/simple
 
 or
 
@@ -107,6 +109,10 @@ Then try
     ./simple --replace
 
 And if it works, start `ccsm`, find "Window Decoration", "Command", use "exec /usr/local/bin/simple". Note that Compiz then can be used by LXDE directly: Main Menu, LXQt settings, Session settings, X11 settings, Window manager: `/usr/bin/compiz` .
+
+After system update, if `ccsm` says like `ImportError: libprotobuf.so.34.1.0: cannot open shared object file: No such file or directory`, it's need to be rebuilt manually:
+
+    yay -S --rebuild compiz
 
 Q & A
 =====
