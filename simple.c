@@ -48,6 +48,7 @@ typedef struct _decor
 {
     void    (*draw) (struct _decor *d);
     XID              prop_xid;
+    int              pid;
     Window           titlebar_window; /* For mouse events */
     int              client_width;
     int              client_height;
@@ -262,7 +263,7 @@ uint32_t ahsl2abgr(uint8_t a, uint8_t h, uint8_t s, uint8_t l) // Full range 0..
     return result;
 }
 
-static int init_decor(XID xid, int client_width, cairo_surface_t *surface, int type)
+static int set_decor(XID xid, int client_width, cairo_surface_t *surface, int type)
 {
     decor_quad_t quads[N_QUADS_MAX];
     unsigned int nQuad = my_set_window_quads(quads, client_width);
@@ -353,8 +354,7 @@ static void draw_window_decoration(decor_t * d)
     cairo_paint(cr);
     cairo_destroy(cr);
 
-    /* I believe it should be possible not each time FIXME */
-    init_decor(d->prop_xid, d->client_width, d->surface, 1);
+    set_decor(d->prop_xid, d->client_width, d->surface, 1);
 
     XSync(xdisplay, FALSE);
 }
@@ -468,7 +468,6 @@ static unsigned int get_mwm_prop(Window xwindow)
 static void update_window_decoration_icon(WnckWindow * win)
 {
     D; // NOTE Should be DR ?
-
     DESTROY(icon_surface);
 
     if (d->icon_gdkpixbuf)
@@ -490,12 +489,6 @@ static void update_window_decoration_icon(WnckWindow * win)
             cairo_destroy(cr);
         }
     }
-}
-
-static void update_window_decoration_state(WnckWindow * win)
-{
-    // D;
-    // d->state = wnck_window_get_state(win); // FIXME What it does?
 }
 
 static void update_decoration_size_or_title(WnckWindow * win)
@@ -637,11 +630,11 @@ static void add_frame_window(WnckWindow * win, Window frame)
     XSync(xdisplay, FALSE);
     if (! gdk_error_trap_pop())
     {
-        int pid = wnck_window_get_pid (win);
-        if (! pid)
-            pid = wnck_application_get_pid(wnck_window_get_application(win));
+        d->pid = wnck_window_get_pid (win);
+        if (! d->pid)
+            d->pid = wnck_application_get_pid(wnck_window_get_application(win));
 
-        sprintf(d->process, "/proc/%d/cmdline", pid);  /* Reuse memory */
+        sprintf(d->process, "/proc/%d/cmdline", d->pid);  /* Reuse memory */
 
         int n = 0;
         char c;
@@ -660,7 +653,6 @@ static void add_frame_window(WnckWindow * win, Window frame)
 
         g_hash_table_insert(frame_table, GUINT_TO_POINTER(d->titlebar_window), GUINT_TO_POINTER(xid));
 
-        update_window_decoration_state(win);
         update_window_decoration_icon(win);
         update_decoration_size_or_title(win);
     }
@@ -671,7 +663,6 @@ static void add_frame_window(WnckWindow * win, Window frame)
 static void remove_frame_window(WnckWindow * win)
 {
     D;
-
     DESTROY(p_surface[0]);
     DESTROY(p_buffer_surface[0]);
     DESTROY(p_surface[1]);
@@ -712,31 +703,17 @@ static void window_icon_changed(WnckWindow * win)
 static void window_state_changed(WnckWindow * win)
 {
     DR;
-    update_window_decoration_state(win);
     update_decoration_size_or_title(win);
-
-    // d->prop_xid = wnck_window_get_xid(win);
 }
 
-static void active_window_changed_1(WnckWindow *win)
-{
-    if (win)
-    {
-        D;
-        if (d != NULL && d->surface != NULL && d->decorated)
-        {
-            d->active = wnck_window_is_active(win);
-            // if (!g_slist_find(draw_list, d))
-            //     d->prop_xid = wnck_window_get_xid(win);
-            queue_decor_draw(d);
-        }
-    }
-}
 
 static void active_window_changed(WnckScreen *screen)
 {
-    active_window_changed_1 (wnck_screen_get_previously_active_window(screen));
-    active_window_changed_1 (wnck_screen_get_active_window(screen));
+#define SET_ACTIVE(w) win = w; if (win) { D; if (d && d->surface && d->decorated) { d->active = wnck_window_is_active(win); queue_decor_draw(d); } }
+
+    WnckWindow *win;
+    SET_ACTIVE (wnck_screen_get_previously_active_window(screen));
+    SET_ACTIVE (wnck_screen_get_active_window(screen));
 }
 
 static void window_opened(WnckScreen *screen, WnckWindow *win)
@@ -867,8 +844,8 @@ static void action_menu_map(WnckWindow *win, XEvent *xevent)
             break;
         case 5:
             D;
-            char str[MAX_TITLE_STRLEN + PATH_MAX + 2];
-            sprintf(str, "%s\n%s\n", d->title, d->process);
+            char str[MAX_TITLE_STRLEN + PATH_MAX + 16];
+            sprintf(str, "%s\n%s\npid: %d\n", d->title, d->process, d->pid);
             GtkClipboard* clipboard = gtk_clipboard_get(GDK_SELECTION_CLIPBOARD);
             gtk_clipboard_set_text(clipboard, str, -1);
             break;
@@ -1151,7 +1128,7 @@ int main(int argc, char *argv[])
 
     decor_alloc_property_data = decor_alloc_property(1, WINDOW_DECORATION_TYPE_PIXMAP);
 
-    init_decor(xroot, 1, temp_surface, 0);
+    set_decor(xroot, 1, temp_surface, 0);
 
     GList *windows = wnck_screen_get_windows(wnck_screen);
     while (windows)
