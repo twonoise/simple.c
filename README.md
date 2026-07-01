@@ -47,7 +47,7 @@ I've also added equibright (CIE) compensator for HSL to RGB conversion, to get b
 
 > A proper equibright is impossible without either (_a_) squeeze color space, or, (_b_) reduce dynamic range (brightness) of display device for an order (pure yellow to pure blue brightness ratio), so quite expensive display need, **and**, full desktop (not just one window) support. (Or, somewhere between _a_ & _b_). We use the former one here.
 
-It's all available in one C file, with minimal possible deps, and file sizes less than 64 kb both source and binary.
+It's all available in one C file, with minimal possible deps, and file sizes less than 64 kb both source and binary. I hope the code is user friendly enough: please introduce your own tricks, code is _intended_ for that.
 
 Compile
 =======
@@ -119,7 +119,7 @@ Q & A
 
 _Where are title buttons?_
 
-Ask me if you need it, I'll add.
+Ask me if you need it, I'll add. Note that icon is already a button, as expected.
 
 Bugs
 ====
