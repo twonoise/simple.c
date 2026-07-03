@@ -4,10 +4,11 @@
 #define PACKAGE      "simple"
 #define VERSION      "0.8.18.1"  /* Will work with Compiz 0.9.14.2 also. */
 
-#define BORDER       1
-#define TITLE_H      16
-#define GRAD_W       256
-#define GRAD_H       TITLE_H
+#define SCALE        1           /* 1 is regular, 2 for HiDPI */
+#define BORDER       (1 * SCALE)
+#define TITLE_H      (16 * SCALE)
+#define GRAD_W       (256 * SCALE)
+#define GRAD_H       (16 * SCALE)
 #define ICON_SZ      "16"        /* Popup Menu icons: 16, 24, 32, 48, scalable. */
 #define ICONS_PATH   "/root/.icons/Chicago95/actions/"ICON_SZ
 #define BDF_PCF_FONT "xos4 Terminus"  /* No .otb and non-bitmaps, please. */
@@ -22,8 +23,10 @@
 #include <locale.h>
 #include <X11/Xlib.h>
 #include <X11/Xatom.h>
+// Another huge memory leak is from GTK. Total leak will be ~4 Mb.
 #include <gdk/gdkx.h>
 #include <cairo-xlib.h>
+#include <Xm/MwmUtil.h>
 #include <decoration.h>
 
 #define WNCK_I_KNOW_THIS_IS_UNSTABLE
@@ -78,8 +81,7 @@ static Atom wm_protocols_atom;
 static Atom mwm_hints_atom;
 static Atom toolkit_action_atom;
 static Atom toolkit_menu_atom;
-
-static Time dm_sn_timestamp;
+// static Atom temp_atom;
 
 static GtkWidget *window_popup;
 static GHashTable *frame_table;
@@ -131,14 +133,14 @@ static cairo_surface_t *create_surface(int w, int h, int type)
     }
 }
 
-static gboolean destroy_surface_idled(gpointer data)
+static int destroy_surface_idled(gpointer data)
 {
     cairo_surface_t *surface = (cairo_surface_t *) data;
 
-    if (surface != NULL)
+    if (surface)
         cairo_surface_destroy(surface);
 
-    return FALSE;
+    return 0;
 }
 
 static int my_set_window_quads(decor_quad_t * q, int width)
@@ -227,7 +229,7 @@ static int my_set_window_quads(decor_quad_t * q, int width)
 
 #define cairo_set_RGBA(cr, c) cairo_set_source_rgba(cr, BYTE(c, 0) / 255.0, BYTE(c, 1) / 255.0, BYTE(c, 2) / 255.0, BYTE(c, 3) / 255.0)
 
-#define cairo_show_textXY(dx, dy, s) { cairo_move_to(cr, TITLE_H + BORDER + TITLE_H / 4 + dx, TITLE_H + BORDER - 4 + dy); cairo_show_text(cr, s); }
+#define cairo_show_textXY(dx, dy, s) { cairo_move_to(cr, TITLE_H + BORDER + TITLE_H / 4 + (dx) * SCALE, TITLE_H + BORDER + (-4 + (dy)) * SCALE); cairo_show_text(cr, s); }
 
 // NOTE Will not work with -O3 magic, only -O2 allowed.
 uint16_t k (uint8_t N, uint8_t h)
@@ -299,28 +301,25 @@ static void draw_window_decoration(decor_t * d)
     int grad_x = MAX(TITLE_H + BORDER, d->client_width - GRAD_W);
     int grad_w = MIN(GRAD_W, d->client_width - BORDER - TITLE_H);
 
-    if (d->active)
+    if ((d->active) && (grad_w > 0))
     {
+        cairo_surface_t *gradient;
+        gradient = cairo_image_surface_create(CAIRO_FORMAT_RGB24, grad_w, GRAD_H);
+        int* gradient_pixels = (int *) cairo_image_surface_get_data (gradient);
 
-        if (grad_w > 0)
-        {
-            cairo_surface_t *gradient;
-            gradient = cairo_image_surface_create(CAIRO_FORMAT_RGB24, grad_w, GRAD_H);
-            int* gradient_pixels = (int *) cairo_image_surface_get_data (gradient);
+        /*  We need BGR24 or ABGR32, but Cairo does not offer it.  */
+        uint32_t color[2];
+        color[0] = __builtin_bswap32(d->color[d->active][0] << 8);
+        color[1] = __builtin_bswap32(d->color[d->active][1] << 8);
 
-            /*  We need BGR24 or ABGR32, but Cairo does not offer it.  */
-            uint32_t color[2];
-            color[0] = __builtin_bswap32(d->color[d->active][0] << 8);
-            color[1] = __builtin_bswap32(d->color[d->active][1] << 8);
+        for (int x = 0; x < grad_w; x++)
+            for (int y = 0; y < GRAD_H; y++)
+                gradient_pixels[x + grad_w * y] =
+                            color[x / SCALE > bayer[x / SCALE % 16][y / SCALE % 16]];
 
-            for (int x = 0; x < grad_w; x++)
-                for (int y = 0; y < GRAD_H; y++)
-                    gradient_pixels[x + grad_w * y] = color[(x > bayer[x%16][y%16])];
-
-            cairo_set_source_surface(cr, gradient, BORDER + grad_x, BORDER);
-            cairo_paint(cr);
-            cairo_surface_destroy(gradient);
-        }
+        cairo_set_source_surface(cr, gradient, BORDER + grad_x, BORDER);
+        cairo_paint(cr);
+        cairo_surface_destroy(gradient);
     }
 
     cairo_set_RGBA(cr, d->color[d->active][0]);
@@ -386,7 +385,7 @@ static void queue_decor_draw(decor_t * d)
         draw_idle_id = g_idle_add(draw_decor_list, NULL);
 }
 
-static gboolean get_window_prop(Window xwindow, Atom atom, Window * val)
+static int get_window_prop(Window xwindow, Atom atom, Window * val)
 {
     Atom type;
     int format;
@@ -405,60 +404,18 @@ static gboolean get_window_prop(Window xwindow, Atom atom, Window * val)
     err = gdk_error_trap_pop();
 
     if (err != Success || result != Success)
-        return FALSE;
+        return 0;
 
     if (type != XA_WINDOW)
     {
         XFree(w);
-        return FALSE;
+        return 0;
     }
 
     *val = *w;
     XFree(w);
 
-    return TRUE;
-}
-
-#define MWM_DECOR_ALL      (1L << 0)
-#define MWM_DECOR_BORDER   (1L << 1)
-#define MWM_DECOR_HANDLE   (1L << 2)
-#define MWM_DECOR_TITLE    (1L << 3)
-#define MWM_DECOR_MENU     (1L << 4)
-#define MWM_DECOR_MINIMIZE (1L << 5)
-#define MWM_DECOR_MAXIMIZE (1L << 6)
-
-static unsigned int get_mwm_prop(Window xwindow)
-{
-    typedef struct {
-        unsigned long flags;
-        unsigned long functions;
-        unsigned long decorations;
-    } MwmHints;
-
-    Atom actual;
-    int err, result, format;
-    unsigned long n, left;
-    unsigned char *hints_ret;
-    MwmHints *mwm_hints;
-    unsigned int decor = MWM_DECOR_ALL;
-
-    gdk_error_trap_push();
-
-    result = XGetWindowProperty(xdisplay, xwindow, mwm_hints_atom, 0L, 20L, FALSE, mwm_hints_atom, &actual, &format, &n, &left, &hints_ret);
-    mwm_hints = (MwmHints *) hints_ret;
-
-    err = gdk_error_trap_pop();
-    if (err != Success || result != Success)
-        return decor;
-
-    if (mwm_hints)
-    {
-        if (n >= 3 && mwm_hints->flags & (1L << 1)) // PROP_MOTIF_WM_HINT_ELEMENTS, MWM_HINTS_DECORATIONS
-            decor = mwm_hints->decorations; // Is it initialised? NOTE
-        XFree(mwm_hints);
-    }
-
-    return decor;
+    return 1;
 }
 
 #define D decor_t *d = g_object_get_data(G_OBJECT(win), "decor")
@@ -468,12 +425,13 @@ static unsigned int get_mwm_prop(Window xwindow)
 static void update_window_decoration_icon(WnckWindow * win)
 {
     D; // NOTE Should be DR ?
+
     DESTROY(icon_surface);
 
     if (d->icon_gdkpixbuf)
         g_object_unref(G_OBJECT(d->icon_gdkpixbuf));
 
-    d->icon_gdkpixbuf = wnck_window_get_mini_icon(win);
+    d->icon_gdkpixbuf = (TITLE_H < 32) ? wnck_window_get_mini_icon(win) : wnck_window_get_icon(win);
 
     if (d->icon_gdkpixbuf)
     {
@@ -554,7 +512,7 @@ fail1:
         d->p_surface[1]        = surface[1];
         d->p_buffer_surface[1] = buffer_surface[1];
 
-        d->prop_xid = wnck_window_get_xid(win);
+        // d->prop_xid = wnck_window_get_xid(win);
 
         d->hue = d->prop_xid % 255 + 1;
 
@@ -648,10 +606,11 @@ static void add_frame_window(WnckWindow * win, Window frame)
         if (n == 0)
             strcpy(d->process, "(unknown)");
 
-        gulong xid = wnck_window_get_xid(win);
-        d->decorated = (get_mwm_prop(xid) & (MWM_DECOR_ALL | MWM_DECOR_TITLE));
+        d->prop_xid = wnck_window_get_xid(win);
 
-        g_hash_table_insert(frame_table, GUINT_TO_POINTER(d->titlebar_window), GUINT_TO_POINTER(xid));
+        g_hash_table_insert(frame_table, GUINT_TO_POINTER(d->titlebar_window), GUINT_TO_POINTER(d->prop_xid));
+
+        d->decorated = 1;
 
         update_window_decoration_icon(win);
         update_decoration_size_or_title(win);
@@ -663,6 +622,7 @@ static void add_frame_window(WnckWindow * win, Window frame)
 static void remove_frame_window(WnckWindow * win)
 {
     D;
+
     DESTROY(p_surface[0]);
     DESTROY(p_buffer_surface[0]);
     DESTROY(p_surface[1]);
@@ -675,7 +635,7 @@ static void remove_frame_window(WnckWindow * win)
         d->icon_gdkpixbuf = NULL;
     }
 
-    d->client_width = d->client_height = d->title[0] = d->decorated = 0;
+    d->decorated = 0;
     draw_list = g_slist_remove(draw_list, d);
 }
 
@@ -959,7 +919,9 @@ static GdkFilterReturn event_filter_func(GdkXEvent * gdkxevent, GdkEvent * event
 
 static void signal_handler(int sig)
 {
-    exit(1);
+    fprintf(stderr, " Signal received. Will quit.\n");
+
+    gtk_main_quit ();
 }
 
 
@@ -1068,6 +1030,7 @@ int main(int argc, char *argv[])
     toolkit_action_atom = XInternAtom(xdisplay, "_COMPIZ_TOOLKIT_ACTION", FALSE);
     toolkit_menu_atom   = XInternAtom(xdisplay, "_COMPIZ_TOOLKIT_ACTION_WINDOW_MENU", FALSE);
 
+    Time dm_sn_timestamp;
     int status = decor_acquire_dm_session(xdisplay, DefaultScreen(xdisplay), PACKAGE, replace, &dm_sn_timestamp);
 
     if (status != DECOR_ACQUIRE_STATUS_SUCCESS)
@@ -1134,21 +1097,14 @@ int main(int argc, char *argv[])
     while (windows)
     {
         window_opened(wnck_screen, windows->data);
-
-        WnckWindow* win = windows->data;
-        D;
-
-        if (d->decorated)
-        {
-            d->client_width = d->client_height = d->title[0] = 0;
-            update_decoration_size_or_title(WNCK_WINDOW(windows->data));
-        }
         windows = windows->next;
     }
 
     // g_timeout_add(500, reload_if_needed, NULL);
 
     gtk_main();
+
+    printf("%s: Cleanup.\n", program_name);
 
     free(decor_alloc_property_data);
     cairo_surface_destroy(temp_surface);
