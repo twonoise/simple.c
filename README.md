@@ -119,9 +119,9 @@ After system update, if `ccsm` says like `ImportError: libprotobuf.so.34.1.0: ca
 What is tested, or not
 ======================
 
-* Compiz versions both 0.8.18 and 0.9.14.2 (both are current) are tested.
+* Compiz versions both 0.8.18 and 0.9.14.2 (both are current[^3]) are tested.
 
-* Multiple workspaces/desktops/displays per one PC are not tested and not planned, sorry (which does not meant that it will do not work).
+* Multiple workspaces/desktops/displays per one PC are not tested and testing is not planned, sorry (which does not meant that it will do not work).
 
 * However, virtual desktop **size** (like using command below) is tested.
 
@@ -161,4 +161,6 @@ References
 [^1] https://stackoverflow.com/questions/57911772/gtk3-gtk-menu-popup-at-pointer-without-trigger-event
 
 [^2] https://github.com/compiz-reloaded/emerald
+
+[^3] https://wiki.archlinux.org/title/Compiz
 
