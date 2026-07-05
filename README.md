@@ -116,6 +116,19 @@ After system update, if `ccsm` says like `ImportError: libprotobuf.so.34.1.0: ca
 
     yay -S --rebuild compiz
 
+What is tested, or not
+======================
+
+* Compiz versions both 0.8.18 and 0.9.14.2 (both are current) are tested.
+
+* Multiple workspaces/desktops/displays per one PC are not tested and not planned, sorry (which does not meant that it will do not work).
+
+* However, virtual desktop **size** (like using command below) is tested.
+
+    `xrandr --output HDMI1 --fb 2304x1728 --panning 2304x1728 --scale 2x2`
+
+* None of Compiz's effect, except Color filter, Negate, and Opacity, are tested (but again, should work fine).
+
 Q & A
 =====
 
