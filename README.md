@@ -123,11 +123,18 @@ What is tested, or not
 
 * Multiple workspaces/desktops/displays per one PC are not tested and testing is not planned, sorry (which does not meant that it will do not work).
 
-* However, virtual desktop **size** (like using command below) is tested.
-
-    `xrandr --output HDMI1 --fb 2304x1728 --panning 2304x1728 --scale 2x2`
+* However, virtual desktop **size** (like using command below) is tested.<br />
+    `xrandr --output HDMI1 --fb 2304x1728 --panning 2304x1728 --scale 2`<br />
+Btw, it is required for high resolution screenshots: (PrtScr or so will not work)<br />
+    `xwd -out "$(date).xwd" -root -display :0.0`
 
 * None of Compiz's effect, except Color filter, Negate, and Opacity, are tested (but again, should work fine).
+
+* Xe driver work, like <br>
+`efibootmgr -c -d /dev/nvme0n1 --part 1 --create --gpt -L "Arch Linux Xe" -l /vmlinuz-linux -u "root=/dev/nvme0n1p2 rw initrd=/initramfs-linux.img ipv6.disable=1  i915.force_probe="\!"4680 xe.force_probe=4680"`<br>
+`cat /proc/cmdline`<br>
+`lspci -v | grep xe`
+
 
 Q & A
 =====
