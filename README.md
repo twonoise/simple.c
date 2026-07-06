@@ -146,11 +146,15 @@ Ask me if you need it, I'll add. Note that icon is already a button, as expected
 Bugs
 ====
 
-There are many, like massive memory leaks from Python libraries, and other places, please see C code. Probably, most are one leak per session, so it is not really a leak at all, as it is just memory used for program to work.
+There are massive memory leaks from both Python and GTK libraries, and other places, please see C code for references. Probably, most are one leak per session, so it is not really a leak at all, as it is just memory used for program to work.
 
 There is bug with popup menu, when we can't connect input signal to Python code when we are change active window, so current popup, if any, should gone. Good news are it's rare condition, as popups are gone itself most time by normal computer use.
 
-To fix distorted (stretched) titlebar for `xterm`, check our source code for workaround (by word _xterm_). This occurs not on every system, and may depend on if xterm's own 1px border displayed or not. It looks like `wnck` (both `-1` & `-3`) or `xterm` issue(s). 
+To fix distorted (stretched) titlebar for `xterm`, check our source code for workaround (by word _xterm_). This occurs not on every system, and may depend on if xterm's own 1px border displayed or not. It looks like `wnck` (both `-1` & `-3`) or `xterm` issue(s). Also fixed by
+
+    alias xterm='xterm -w 0'
+
+at `.bashrc`, but, unhappily, bash aliases are not used by `Run...` dialog of XFCE or LXQt, and non-bash aliases are not exist.
 
 
 LICENSE
