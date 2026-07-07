@@ -34,6 +34,7 @@
 uint64_t satur = 0x0000A000C410C400;
 uint64_t luma  = 0x0000E08060602020;
 int utf        = 0;
+int ebcomp     = 8;
 int replace    = 0;
 int hicontrast = 0;
 int scale      = 1;
@@ -54,6 +55,8 @@ static void usage(const char *name)
     "                            Default: %lx\n"
     " -s, --saturation=UINT64  same, but for saturation of these colors\n"
     "                            Default: %lx\n"
+    " -e, --eb-comp=INT        equibright compensation strength, 0..8\n"
+    "                            Default: 8\n"
     " -c, --high-contrast      reduce saturation, increase contrast\n"
     " -i, --invert-colors      in case if negate filter inverts decoration\n"
     " -d, --hidpi              enlarge pixels as 2x2 dots\n"
@@ -62,7 +65,7 @@ static void usage(const char *name)
 }
 
 static const char *shortopts =
-    "hvrl:s:cidm:";
+    "hvrl:s:e:cidm:";
 
 static const struct option longopts[] = {
     {"help",          0, 0, 'h'},
@@ -70,6 +73,7 @@ static const struct option longopts[] = {
     {"replace",       0, 0, 'r'},
     {"luma",          1, 0, 'l'},
     {"saturation",    1, 0, 's'},
+    {"eb-comp",       1, 0, 'e'},
     {"high-contrast", 0, 0, 'c'},
     {"invert-colors", 0, 0, 'i'},
     {"hidpi",         0, 0, 'd'},
@@ -163,10 +167,11 @@ static int set_decor(XID xid, int client_width, cairo_surface_t *surface, int ty
     decor_quad_t q[N_QUADS_MAX];
 
     decor_set_horz_quad_line (q+0, BORDER, 0, BORDER, 0, -(TITLE_H + BORDER), 0, GRAVITY_NORTH, BORDER * 2 + client_width, 0, 0, 0, 0);
-    q[1].m.xx = 1; /* Is it BUG with decor_set_horz_quad_line() ? */
     decor_set_horz_quad_line (q+3, BORDER, 0, BORDER, 0, 0, BORDER, GRAVITY_SOUTH, BORDER * 2 + client_width, 0, 0, 0, BORDER);
     decor_set_vert_quad_row (q+6, 0, 0, 0, 0, -BORDER, 0, GRAVITY_WEST, TITLE_H, 0, 0, 0, 0, 0);
     decor_set_vert_quad_row (q+9, 0, 0, 0, 0, 0, BORDER, GRAVITY_EAST, TITLE_H, 0, 0, 0, 0, 0);
+
+    q[1].m.xx = 1; /* Is it BUG with decor_set_horz_quad_line() ? */
 
     decor_extents_t extents = {.bottom = 0, .left = 0, .right = 0, .top = TITLE_H};
 
@@ -204,14 +209,14 @@ uint32_t ahsl2abgr(uint8_t a, uint8_t h, uint8_t s, uint8_t l) // Full range 0..
     int q = (MAX(50-MIN(h,255-h),0) + MAX(30-abs(h-85),0) + MAX(110-abs(h-170),0) - 20); /* Range is: -20 (yellow) to 90 (blue) */
 
     /* Decompensate the curve for not full saturation. */
-    int p = q * s * MIN(l, 255 - l) >> 15;
+    int p = q * s * MIN(l, 255 - l) * ebcomp >> 18;
 
     l = MIN(255, (l + p)); /* Hope we never overflow uint8 here? */
     s = MAX(  0, (s - p));
 
     uint16_t A = (s * MIN(l, 255 - l) * 259) >> 8;
 
-#define f(N) (uint8_t) ((l * (255*255) - A * MAX(MIN(MIN(k(N, h) - 3*255, 9*255 - k(N, h)), 255), -255)) / (255*255))
+    #define f(N) (uint8_t) ((l * (255*255) - A * MAX(MIN(MIN(k(N, h) - 3*255, 9*255 - k(N, h)), 255), -255)) / (255*255))
 
     uint32_t result = (((((a << 8) + f(4)) << 8) + f(8)) << 8) + f(0);
 
@@ -931,7 +936,8 @@ int main(int argc, char *argv[])
             case 'v': MSG("%s, version %s", PACKAGE, VERSION); return -1;
             case 'l':       luma = strtoull(optarg, NULL, 16); break;
             case 's':      satur = strtoull(optarg, NULL, 16); break;
-            case 'm':    verbose = FIT(strtoul(optarg, NULL, 10), 0, 4); break;
+            case 'e':     ebcomp = MIN(strtoul(optarg, NULL, 10), 8); break;
+            case 'm':    verbose = MIN(strtoul(optarg, NULL, 10), 4); break;
             case 'r':    replace = 1; break;
             case 'c': hicontrast = 1; break;
             case 'i':     invert = 1; break;
