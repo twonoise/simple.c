@@ -30,7 +30,7 @@ Other trouble with dark theme is with icons:
 
 <img width="245" height="271" alt="dark-theme-icons" src="https://github.com/user-attachments/assets/9fce119d-e5b5-4898-83e3-e5a588bd9c94" />
 
-<small> _Fig. 1. Note wrong icons and border colors on dark themed context menu._ </small>
+<small> _Fig. 1. Note wrong color of icons and border on dark themed context menu._ </small>
 
 And it can not have any **general** solution, at the point of view of dark themes. Again, only we can is _do not use **dark** theme_, but use inversion.
 
