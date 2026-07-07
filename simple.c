@@ -62,19 +62,19 @@ static void usage(const char *name)
 }
 
 static const char *shortopts =
-  "hvrl:s:cidm:";
+    "hvrl:s:cidm:";
 
 static const struct option longopts[] = {
-  {"help",          0, 0, 'h'},
-  {"version",       0, 0, 'v'},
-  {"replace",       0, 0, 'r'},
-  {"luma",          1, 0, 'l'},
-  {"saturation",    1, 0, 's'},
-  {"high-contrast", 0, 0, 'c'},
-  {"invert-colors", 0, 0, 'i'},
-  {"hidpi",         0, 0, 'd'},
-  {"verbose",       1, 0, 'm'},
-  {0, 0, 0, 0}
+    {"help",          0, 0, 'h'},
+    {"version",       0, 0, 'v'},
+    {"replace",       0, 0, 'r'},
+    {"luma",          1, 0, 'l'},
+    {"saturation",    1, 0, 's'},
+    {"high-contrast", 0, 0, 'c'},
+    {"invert-colors", 0, 0, 'i'},
+    {"hidpi",         0, 0, 'd'},
+    {"verbose",       1, 0, 'm'},
+    {0, 0, 0, 0}
 };
 
 #define WNCK_I_KNOW_THIS_IS_UNSTABLE
@@ -158,77 +158,19 @@ long int retValue = -2;
 #define FIT(x, min, max) (x < min ? min : x > max ? max : x)
 #define BYTE(x, n) (((uint8_t *)&x)[n])
 
-static int my_set_window_quads(decor_quad_t * q, int width)
-{
-#define XXXYYYYX { q->m.xx = 1; q->m.xy = 0; q->m.yy = 1; q->m.yx = 0; }
-
-#define my_add_quad_row(width, ypush, vgrav, X0, Y0) { \
-        int p1y = (vgrav == GRAVITY_NORTH) ? -ypush : 0; \
-        int p2y = (vgrav == GRAVITY_NORTH) ? 0 : ypush; \
-        q->p1.x = -BORDER;  q->p1.y = p1y;  q->p1.gravity = vgrav | GRAVITY_WEST; \
-        q->p2.x = 0;        q->p2.y = p2y;  q->p2.gravity = vgrav | GRAVITY_WEST; \
-        q->align = 0; \
-        q->clamp = 0; \
-        q->stretch = 0; \
-        q->max_width = BORDER; \
-        q->max_height = ypush; \
-        q->m.x0 = X0; \
-        q->m.y0 = Y0; \
-        XXXYYYYX; \
-        q++; \
-        q->p1.x = 0;        q->p1.y = p1y;  q->p1.gravity = vgrav | GRAVITY_WEST; \
-        q->p2.x = 0;        q->p2.y = p2y;  q->p2.gravity = vgrav | GRAVITY_EAST; \
-        q->align = ALIGN_LEFT | ALIGN_TOP; \
-        q->clamp = 0; \
-        q->stretch = STRETCH_X; \
-        q->max_width = width; \
-        q->max_height = ypush; \
-        q->m.x0 = X0 + BORDER; \
-        q->m.y0 = Y0; \
-        XXXYYYYX; \
-        q++; \
-        q->p1.x = 0;        q->p1.y = p1y;  q->p1.gravity = vgrav | GRAVITY_EAST; \
-        q->p2.x = BORDER;   q->p2.y = p2y;  q->p2.gravity = vgrav | GRAVITY_EAST; \
-        q->max_width = BORDER; \
-        q->max_height = ypush; \
-        q->align = 0; \
-        q->clamp = 0; \
-        q->stretch = 0; \
-        q->m.x0 = X0 + BORDER + width; \
-        q->m.y0 = Y0; \
-        XXXYYYYX; \
-        q++; }
-
-#define my_add_quad_col(height, xpush, hgrav, X0, Y0) { \
-        int p1x = (hgrav == GRAVITY_WEST) ? -xpush : 0; \
-        int p2x = (hgrav == GRAVITY_WEST) ? 0 : xpush; \
-        q->p1.x = p1x;   q->p1.y = 0;   q->p1.gravity = GRAVITY_NORTH | hgrav; \
-        q->p2.x = p2x;   q->p2.y = 0;   q->p2.gravity = GRAVITY_SOUTH | hgrav; \
-        q->max_width = xpush; \
-        q->max_height = height; \
-        q->align = 0; \
-        q->clamp = CLAMP_VERT; \
-        q->stretch = STRETCH_Y; \
-        q->m.x0 = X0; \
-        q->m.y0 = Y0; \
-        XXXYYYYX; \
-        q++; }
-
-    my_add_quad_row(width,    (TITLE_H + BORDER), GRAVITY_NORTH, 0, 0);
-    my_add_quad_row(width,                BORDER, GRAVITY_SOUTH, 0, (TITLE_H + BORDER));
-    my_add_quad_col((TITLE_H + BORDER*2), BORDER, GRAVITY_WEST,  0, 0);
-    my_add_quad_col((TITLE_H + BORDER*2), BORDER, GRAVITY_EAST,  (width + BORDER), 0);
-
-    return 8;
-}
-
 static int set_decor(XID xid, int client_width, cairo_surface_t *surface, int type)
 {
-    decor_quad_t quads[N_QUADS_MAX];
-    unsigned int nQuad = my_set_window_quads(quads, client_width);
+    decor_quad_t q[N_QUADS_MAX];
+
+    decor_set_horz_quad_line (q+0, BORDER, 0, BORDER, 0, -(TITLE_H + BORDER), 0, GRAVITY_NORTH, BORDER * 2 + client_width, 0, 0, 0, 0);
+    q[1].m.xx = 1; /* Is it BUG with decor_set_horz_quad_line() ? */
+    decor_set_horz_quad_line (q+3, BORDER, 0, BORDER, 0, 0, BORDER, GRAVITY_SOUTH, BORDER * 2 + client_width, 0, 0, 0, BORDER);
+    decor_set_vert_quad_row (q+6, 0, 0, 0, 0, -BORDER, 0, GRAVITY_WEST, TITLE_H, 0, 0, 0, 0, 0);
+    decor_set_vert_quad_row (q+9, 0, 0, 0, 0, 0, BORDER, GRAVITY_EAST, TITLE_H, 0, 0, 0, 0, 0);
+
     decor_extents_t extents = {.bottom = 0, .left = 0, .right = 0, .top = TITLE_H};
 
-    decor_quads_to_property(decor_alloc_property_data, 0, cairo_xlib_surface_get_drawable(surface), &extents, &extents, &extents, &extents, 0, 0, quads, nQuad, 0xffffff, 0, 0);
+    decor_quads_to_property(decor_alloc_property_data, 0, cairo_xlib_surface_get_drawable(surface), &extents, &extents, &extents, &extents, 0, 0, q, 12, 0xffffff, 0, 0);
 
     gdk_error_trap_push();
     XChangeProperty(xdisplay, xid, type ? win_decor_atom : active_atom, XA_INTEGER, 32, PropModeReplace, (guchar *) decor_alloc_property_data, PROP_HEADER_SIZE + BASE_PROP_SIZE + QUAD_PROP_SIZE * N_QUADS_MAX);
@@ -365,20 +307,16 @@ static void draw_window_decoration(decor_t * d)
 
 static int draw_decor_list(void *data)
 {
-    GSList *list;
-    decor_t *d;
-
     draw_idle_id = 0;
 
-    for (list = draw_list; list; list = list->next)
+    for (GSList *list = draw_list; list; list = list->next)
     {
-        d = (decor_t *) list->data;
+        decor_t *d = (decor_t *) list->data;
         (*d->draw) (d);
     }
 
     g_slist_free(draw_list);
     draw_list = NULL;
-
     return 0;
 }
 
@@ -729,9 +667,8 @@ static void cb_active_window_changed(WnckScreen *screen)
 static void cb_window_opened(WnckScreen *screen, WnckWindow *win)
 {
     DBG("cb_window_opened()");
-    decor_t *d;
 
-    d = g_malloc0(sizeof(decor_t));
+    decor_t *d = g_malloc0(sizeof(decor_t));
     if (!d)
         return;
 
@@ -1050,7 +987,6 @@ int main(int argc, char *argv[])
         if (PyErr_Occurred())
             PyErr_Print();
         ERR("Cannot find Python function windowActionsMenu.");
-        exit(1);
     }
 
     pArgs = PyTuple_New(2);
@@ -1078,17 +1014,16 @@ int main(int argc, char *argv[])
 
     gdk_error_trap_push();
 
-    frame_window_atom   = XInternAtom(xdisplay, DECOR_INPUT_FRAME_ATOM_NAME, FALSE);
-    win_decor_atom      = XInternAtom(xdisplay, DECOR_WINDOW_ATOM_NAME, FALSE);
-    active_atom         = XInternAtom(xdisplay, DECOR_ACTIVE_ATOM_NAME, FALSE);
-    select_window_atom  = XInternAtom(xdisplay, DECOR_SWITCH_WINDOW_ATOM_NAME, FALSE);
-    wm_move_resize_atom = XInternAtom(xdisplay, "_NET_WM_MOVERESIZE", FALSE);
-    restack_window_atom = XInternAtom(xdisplay, "_NET_RESTACK_WINDOW", FALSE);
-    mwm_hints_atom      = XInternAtom(xdisplay, "_MOTIF_WM_HINTS", FALSE);
-    wm_protocols_atom   = XInternAtom(xdisplay, "WM_PROTOCOLS", FALSE);
-
+    select_window_atom  = XInternAtom(xdisplay, "_COMPIZ_SWITCH_SELECT_WINDOW", FALSE);
     toolkit_action_atom = XInternAtom(xdisplay, "_COMPIZ_TOOLKIT_ACTION", FALSE);
     toolkit_menu_atom   = XInternAtom(xdisplay, "_COMPIZ_TOOLKIT_ACTION_WINDOW_MENU", FALSE);
+    win_decor_atom      = XInternAtom(xdisplay, "_COMPIZ_WINDOW_DECOR", FALSE);
+    active_atom         = XInternAtom(xdisplay, "_COMPIZ_WINDOW_DECOR_ACTIVE", FALSE);
+    mwm_hints_atom      = XInternAtom(xdisplay, "_MOTIF_WM_HINTS", FALSE);
+    frame_window_atom   = XInternAtom(xdisplay, "_NET_FRAME_WINDOW", FALSE);
+    restack_window_atom = XInternAtom(xdisplay, "_NET_RESTACK_WINDOW", FALSE);
+    wm_move_resize_atom = XInternAtom(xdisplay, "_NET_WM_MOVERESIZE", FALSE);
+    wm_protocols_atom   = XInternAtom(xdisplay, "WM_PROTOCOLS", FALSE);
 
     Time dm_sn_timestamp;
     int status = decor_acquire_dm_session(xdisplay, DefaultScreen(xdisplay), PACKAGE, replace, &dm_sn_timestamp);
