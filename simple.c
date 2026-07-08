@@ -36,14 +36,16 @@ uint64_t luma  = 0x0000E08060602020;
 int utf        = 0;
 int ebcomp     = 8;
 int replace    = 0;
+int gradient   = 1;
 int hicontrast = 0;
 int scale      = 1;
 int invert     = 0;
+int icon_pos   = 1;
 int verbose    = 2;
 
 char *program_name;
 
-static void usage(const char *name)
+static void usage(void)
 {
     printf("%s is simple, pixel-perfect window decorator for Compiz 0.8.18, 0.9.14.2\n"
     "options:\n"
@@ -52,20 +54,24 @@ static void usage(const char *name)
     " -r, --replace            try to replace current window decorator, if any\n"
     " -l, --luma=UINT64        4 paired hex luma values for active & inactive state:\n"
     "                            Reserved, Bright, Normal, Dark color\n"
-    "                            Default: %lx\n"
+    "                            Default: %016lx\n"
     " -s, --saturation=UINT64  same, but for saturation of these colors\n"
-    "                            Default: %lx\n"
-    " -e, --eb-comp=INT        equibright compensation strength, 0..8\n"
-    "                            Default: 8\n"
-    " -c, --high-contrast      reduce saturation, increase contrast\n"
-    " -i, --invert-colors      in case if negate filter inverts decoration\n"
+    "                            Default: %016lx\n"
+    " -g, --gradient=UINT      gradient type, 0..2: None, Bayer, Truecolor\n"
+    "                            Default: %d\n"
+    " -e, --eb-comp=UINT       equibright compensation strength, 0..8\n"
+    "                            Default: %d\n"
+    " -i, --icon-pos=UINT      icon position, 0..3: None, Left, Right, Both\n"
+    "                            Default: %d\n"
+    " -c, --hicontrast         reduce saturation, increase contrast\n"
+    " -n, --negate             in case if color filter inverts decoration\n"
     " -d, --hidpi              enlarge pixels as 2x2 dots\n"
-    " -m, --verbose=N          message filter, 0..4. Default: 2\n",
-    program_name, luma, satur);
+    " -m, --verbose=N          message filter, 0..4. Default: %d\n",
+    program_name, luma, satur, gradient, ebcomp, icon_pos, verbose);
 }
 
 static const char *shortopts =
-    "hvrl:s:e:cidm:";
+    "hvrl:s:g:e:i:cndm:";
 
 static const struct option longopts[] = {
     {"help",          0, 0, 'h'},
@@ -74,8 +80,9 @@ static const struct option longopts[] = {
     {"luma",          1, 0, 'l'},
     {"saturation",    1, 0, 's'},
     {"eb-comp",       1, 0, 'e'},
-    {"high-contrast", 0, 0, 'c'},
-    {"invert-colors", 0, 0, 'i'},
+    {"icon-pos",      1, 0, 'i'},
+    {"hicontrast",    0, 0, 'c'},
+    {"negate",        0, 0, 'n'},
     {"hidpi",         0, 0, 'd'},
     {"verbose",       1, 0, 'm'},
     {0, 0, 0, 0}
@@ -227,8 +234,10 @@ uint32_t ahsl2abgr(uint8_t a, uint8_t h, uint8_t s, uint8_t l) // Full range 0..
 
 static void draw_window_decoration(decor_t * d)
 {
+    #define icon_w(n) (TITLE_H * (!!(icon_pos & n)))
     #define cairo_set_RGBA(cr, c) cairo_set_source_rgba(cr, BYTE(c, 0) / 255.0, BYTE(c, 1) / 255.0, BYTE(c, 2) / 255.0, BYTE(c, 3) / 255.0)
-    #define cairo_show_textXY(dx, dy, s) { cairo_move_to(cr, TITLE_H + BORDER + TITLE_H / 4 + (dx) * scale, TITLE_H + BORDER + (-4 + (dy)) * scale); cairo_show_text(cr, s); }
+    #define cairo_pattern_RGB(p, n, c) cairo_pattern_add_color_stop_rgb(p, n, BYTE(c, 0) / 255.0, BYTE(c, 1) / 255.0, BYTE(c, 2) / 255.0)
+    #define cairo_show_textXY(dx, dy, s) { cairo_move_to(cr, icon_w(1) + BORDER + TITLE_H / 4 + (dx) * scale, TITLE_H + BORDER + (-4 + (dy)) * scale); cairo_show_text(cr, s); }
 
     DBG("draw_window_decoration()");
     int i;
@@ -242,17 +251,10 @@ static void draw_window_decoration(decor_t * d)
     if (! cr)
         return;
 
-    cairo_set_RGBA(cr, d->color[d->active][1]);
-    for (i = 0; i < BORDER; i++)
-    {
-        cairo_rectangle(cr, i, i, d->client_width+(BORDER-i)*2, TITLE_H+(BORDER-i)*2);
-        cairo_stroke(cr);
-    }
+    int grad_x = MAX(icon_w(1) + BORDER, d->client_width - icon_w(2) - GRAD_W);
+    int grad_w = MIN(GRAD_W, d->client_width - BORDER - icon_w(1)) + icon_w(2);
 
-    int grad_x = MAX(TITLE_H + BORDER, d->client_width - GRAD_W);
-    int grad_w = MIN(GRAD_W, d->client_width - BORDER - TITLE_H);
-
-    if ((d->active) && (grad_w > 0))
+    if (d->active && (gradient == 1) && (grad_w > 0))
     {
         cairo_surface_t *gradient;
         gradient = cairo_image_surface_create(CAIRO_FORMAT_RGB24, grad_w, GRAD_H);
@@ -266,21 +268,25 @@ static void draw_window_decoration(decor_t * d)
         for (int x = 0; x < grad_w; x++)
             for (int y = 0; y < GRAD_H; y++)
                 gradient_pixels[x + grad_w * y] =
-                            color[x / scale > bayer[x / scale % 16][y / scale % 16]];
+                            color[x / scale >= bayer[x / scale % 16][y / scale % 16]];
 
         cairo_set_source_surface(cr, gradient, BORDER + grad_x, BORDER);
         cairo_paint(cr);
         cairo_surface_destroy(gradient);
     }
 
-    cairo_set_RGBA(cr, d->color[d->active][0]);
-    cairo_rectangle(cr, BORDER, BORDER, d->active ? grad_x : d->client_width, TITLE_H);
+    cairo_rectangle(cr, BORDER, BORDER, (d->active && (gradient == 1)) ? grad_x : d->client_width, TITLE_H);
+    cairo_pattern_t *pat = cairo_pattern_create_linear(0, 0, d->client_width, 0);
+    cairo_pattern_RGB(pat, 0.5, d->color[d->active][0]);
+    cairo_pattern_RGB(pat, 1.0, d->color[d->active][(gradient == 2)]);
+    cairo_set_source(cr, pat);
     cairo_fill(cr);
+    cairo_pattern_destroy(pat);
 
     cairo_select_font_face(cr, BDF_PCF_FONT, CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_BOLD);
     cairo_set_font_size(cr, TITLE_H);
 
-    if ((d->active) && ((d->title_glyphs * (TITLE_H/2) + TITLE_H + BORDER) > grad_x))
+    if ((d->active) && ((d->title_glyphs * (TITLE_H/2) + icon_w(1) + icon_w(2) + BORDER) > grad_x))
     {
         cairo_set_RGBA(cr, d->color[d->active][0]);
         for (i = 0; i < 9; i++)
@@ -294,8 +300,21 @@ static void draw_window_decoration(decor_t * d)
     if (d->icon_surface)
     {
         DBV(" Draw Icon");
-        cairo_set_source_surface(cr, d->icon_surface, BORDER, BORDER);
-        cairo_paint(cr);
+        if (icon_pos & 1) {
+            cairo_set_source_surface(cr, d->icon_surface, BORDER, BORDER);
+            cairo_paint(cr);
+        }
+        if (icon_pos & 2) {
+            cairo_set_source_surface(cr, d->icon_surface, BORDER + d->client_width - TITLE_H, BORDER);
+            cairo_paint(cr);
+        }
+    }
+
+    cairo_set_RGBA(cr, d->color[d->active][1]);
+    for (i = 0; i < BORDER; i++)
+    {
+        cairo_rectangle(cr, i, i, d->client_width+(BORDER-i)*2, TITLE_H+(BORDER-i)*2);
+        cairo_stroke(cr);
     }
 
     cairo_destroy(cr);
@@ -383,6 +402,9 @@ static cairo_surface_t *create_surface(int w, int h, int type)
 
 static void update_window_decoration_icon(WnckWindow * win)
 {
+    if (! icon_pos)
+        return;
+
     DBG("update_window_decoration_icon()");
     Dd; // NOTE Should be DR ?
 
@@ -484,7 +506,7 @@ fail1:
 
     const char* title = wnck_window_get_name(win);
 
-    d->title_glyphs = MAX(((d->client_width - TITLE_H - BORDER) / (TITLE_H/2) - 1), 0);
+    d->title_glyphs = MAX(((d->client_width - icon_w(1) - icon_w(2) - BORDER) / (TITLE_H/2) - 1), 0);
 
     if (utf)
     {
@@ -808,8 +830,8 @@ static void action_menu_map(WnckWindow *win, XEvent *xevent)
     }
 }
 
-typedef void (*event_callback) (WnckWindow *win, XEvent *xevent, GdkXEvent *gdkxevent);
-static void title_event        (WnckWindow *win, XEvent *xevent, GdkXEvent *gdkxevent)
+typedef void (*event_callback) (WnckWindow *win, XEvent *xevent, GdkXEvent *gdkxevent, int width);
+static void title_event        (WnckWindow *win, XEvent *xevent, GdkXEvent *gdkxevent, int width)
 {
     #define WNCK_MAX_UNMAX if (wnck_window_is_maximized(win)) wnck_window_unmaximize(win); else wnck_window_maximize(win)
     static unsigned int last_button_num = 0;
@@ -819,7 +841,8 @@ static void title_event        (WnckWindow *win, XEvent *xevent, GdkXEvent *gdkx
     if (xevent->type != ButtonPress)
         return;
 
-    if (xevent->xbutton.x <= (BORDER + TITLE_H))  /* Window Icon */
+    if (((icon_pos & 1) && xevent->xbutton.x <= (BORDER + TITLE_H)) || /* Window Icon */
+        ((icon_pos & 2) && xevent->xbutton.x >= width - (BORDER + TITLE_H)))
         action_menu_map(win, xevent);
     else if (xevent->xbutton.button == 1)
         if (xevent->xbutton.button == last_button_num &&
@@ -891,7 +914,7 @@ static GdkFilterReturn event_filter_func(GdkXEvent * gdkxevent, GdkEvent * event
             Dd;
 
             if ((d->decorated) && (d->titlebar_window == xevent->xany.window))
-                (*callback) (win, xevent, gdkxevent);
+                (*callback) (win, xevent, gdkxevent, d->client_width);
         }
     }
 
@@ -937,13 +960,15 @@ int main(int argc, char *argv[])
             case 'l':       luma = strtoull(optarg, NULL, 16); break;
             case 's':      satur = strtoull(optarg, NULL, 16); break;
             case 'e':     ebcomp = MIN(strtoul(optarg, NULL, 10), 8); break;
+            case 'g':   gradient = MIN(strtoul(optarg, NULL, 10), 2); break;
             case 'm':    verbose = MIN(strtoul(optarg, NULL, 10), 4); break;
+            case 'i':   icon_pos = MIN(strtoul(optarg, NULL, 10), 3); break;
             case 'r':    replace = 1; break;
             case 'c': hicontrast = 1; break;
-            case 'i':     invert = 1; break;
+            case 'n':     invert = 1; break;
             case 'd':      scale = 2; break;
             case 'h':
-                usage(argv[0]);
+                usage();
             default:
                 return -1;
         }
