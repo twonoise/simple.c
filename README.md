@@ -119,7 +119,7 @@ After system update, if `ccsm` says like `ImportError: libprotobuf.so.34.1.0: ca
 What is tested, or not
 ======================
 
-* LXQt and XFCE are tested.
+* LXQt and XFCE are tested. Ubuntu is _not_ tested, as its Compiz now comes with Color filter removed (since 11.04) [^4].
 
 * Compiz versions both 0.8.18 and 0.9.14.2 (both are current[^3]) are tested.
 
@@ -177,3 +177,4 @@ References
 
 [^3]: https://wiki.archlinux.org/title/Compiz
 
+[^4]: https://askubuntu.com/a/575473
