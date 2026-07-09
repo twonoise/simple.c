@@ -56,20 +56,20 @@ static void usage(void)
     " -v, --version            print version\n"
     " -r, --replace            try to replace current window decorator, if any\n"
     " -l, --luma=UINT64        4 paired hex luma values for active & inactive state:\n"
-    "                            Reserved, Bright, Normal, Dark color\n"
+    "                          Reserved, Bright, Normal, Dark color\n"
     "                            Default: %016lx\n"
     " -s, --saturation=UINT64  same, but for saturation of these colors\n"
     "                            Default: %016lx\n"
-    " -c, --colors=UINT16      from and to range of XID-depend colors.\n"
-    "                          00ff: red to violet. aa11: blue to orange.\n"
+    " -c, --colors=UINT16      from and to range of XID-depend colors\n"
+    "                          00ff: red to violet. aa11: blue to orange\n"
     "                            Default: %04x\n"
-    " -w, --dow-colors=UINT64  seven hex day-of-week depend colors.\n"
+    " -w, --dow-colors=UINT64  seven hex day-of-week depend colors\n"
     "                            Default: %lx\n"
-    " -g, --gradient=UINT      gradient type, 0..2: None, Bayer, Truecolor\n"
+    " -g, --gradient=N         gradient type, 0..2: None, Bayer, Truecolor\n"
     "                            Default: %d\n"
-    " -e, --eb-comp=UINT       equibright compensation strength, 0..8\n"
+    " -e, --eb-comp=N          equibright compensation strength, 0..8\n"
     "                            Default: %d\n"
-    " -i, --icon-pos=UINT      icon position, 0..3: None, Left, Right, Both\n"
+    " -i, --icon-pos=N         icon position, 0..3: None, Left, Right, Both\n"
     "                            Default: %d\n"
     " -t, --hicontrast         reduce saturation, increase contrast\n"
     " -n, --negate             in case if color filter inverts decoration\n"
@@ -208,7 +208,7 @@ uint16_t k (uint8_t N, uint8_t h)
     return (uint16_t) result;
 }
 
-uint32_t ahsl2abgr(uint8_t a, uint8_t h, uint8_t s, uint8_t l) // Full range 0..255 each
+uint32_t hsl2rgb(uint8_t h, uint8_t s, uint8_t l) // Full range 0..255 each
 {
     if (invert)
         l = 255 - l;
@@ -233,7 +233,7 @@ uint32_t ahsl2abgr(uint8_t a, uint8_t h, uint8_t s, uint8_t l) // Full range 0..
 
     #define f(N) (uint8_t) ((l * (255*255) - A * MAX(MIN(MIN(k(N, h) - 3*255, 9*255 - k(N, h)), 255), -255)) / (255*255))
 
-    uint32_t result = (((((a << 8) + f(4)) << 8) + f(8)) << 8) + f(0);
+    uint32_t result = (((f(0) << 8) + f(8)) << 8) + f(4);
 
     DBV("%x %x %x -> %d %x", h, s, l, p, result);
 
@@ -243,8 +243,7 @@ uint32_t ahsl2abgr(uint8_t a, uint8_t h, uint8_t s, uint8_t l) // Full range 0..
 static void draw_window_decoration(decor_t * d)
 {
     #define icon_w(n) (TITLE_H * (!!(icon_pos & n)))
-    #define cairo_set_RGBA(cr, c) cairo_set_source_rgba(cr, BYTE(c, 0) / 255.0, BYTE(c, 1) / 255.0, BYTE(c, 2) / 255.0, BYTE(c, 3) / 255.0)
-    #define cairo_pattern_RGB(p, n, c) cairo_pattern_add_color_stop_rgb(p, n, BYTE(c, 0) / 255.0, BYTE(c, 1) / 255.0, BYTE(c, 2) / 255.0)
+    #define RGB(c) BYTE(c, 2) / 255.0, BYTE(c, 1) / 255.0, BYTE(c, 0) / 255.0
     #define cairo_show_textXY(dx, dy, s) { cairo_move_to(cr, icon_w(1) + BORDER + TITLE_H / 4 + (dx) * scale, TITLE_H + BORDER + (-4 + (dy)) * scale); cairo_show_text(cr, s); }
 
     DBG("draw_window_decoration()");
@@ -267,15 +266,10 @@ static void draw_window_decoration(decor_t * d)
         cairo_surface_t *gradient = cairo_image_surface_create(CAIRO_FORMAT_RGB24, grad_w, GRAD_H);
         int* gradient_pixels = (int *) cairo_image_surface_get_data (gradient);
 
-        /*  We need BGR24 or ABGR32, but Cairo does not offer it.  */
-        uint32_t color[2];
-        color[0] = __builtin_bswap32(d->color[d->active][0] << 8);
-        color[1] = __builtin_bswap32(d->color[d->active][1] << 8);
-
         for (int x = 0; x < grad_w; x++)
             for (int y = 0; y < GRAD_H; y++)
                 gradient_pixels[x + grad_w * y] =
-                            color[x / scale >= bayer[x / scale % 16][y / scale % 16]];
+                d->color[d->active][x / scale >= bayer[x / scale % 16][y / scale % 16]];
 
         cairo_set_source_surface(cr, gradient, BORDER + grad_x, BORDER);
         cairo_paint(cr);
@@ -284,8 +278,8 @@ static void draw_window_decoration(decor_t * d)
 
     cairo_rectangle(cr, BORDER, BORDER, (d->active && (gradient == 1)) ? grad_x : d->client_width, TITLE_H);
     cairo_pattern_t *pat = cairo_pattern_create_linear(0, 0, d->client_width, 0);
-    cairo_pattern_RGB(pat, 0.5, d->color[d->active][0]);
-    cairo_pattern_RGB(pat, 1.0, d->color[d->active][(gradient == 2)]);
+    cairo_pattern_add_color_stop_rgb(pat, 0.5, RGB(d->color[d->active][0]));
+    cairo_pattern_add_color_stop_rgb(pat, 1.0, RGB(d->color[d->active][(gradient == 2)]));
     cairo_set_source(cr, pat);
     cairo_fill(cr);
     cairo_pattern_destroy(pat);
@@ -295,13 +289,13 @@ static void draw_window_decoration(decor_t * d)
 
     if ((d->active) && ((d->title_glyphs * (TITLE_H/2) + icon_w(1) + icon_w(2) + BORDER) > grad_x))
     {
-        cairo_set_RGBA(cr, d->color[d->active][0]);
+        cairo_set_source_rgb(cr, RGB(d->color[d->active][0]));
         for (i = 0; i < 9; i++)
             if (i != 4)
                 cairo_show_textXY(-1 + i%3, -1 + i/3, d->title);
     }
 
-    cairo_set_RGBA(cr, d->color[d->active][2]);
+    cairo_set_source_rgb(cr, RGB(d->color[d->active][2]));
     cairo_show_textXY(0, 0, d->title);
 
     if (d->icon_surface)
@@ -317,7 +311,7 @@ static void draw_window_decoration(decor_t * d)
         }
     }
 
-    cairo_set_RGBA(cr, d->color[d->active][1]);
+    cairo_set_source_rgb(cr, RGB(d->color[d->active][1]));
     for (i = 0; i < BORDER; i++)
     {
         cairo_rectangle(cr, i, i, d->client_width+(BORDER-i)*2, TITLE_H+(BORDER-i)*2);
@@ -513,7 +507,7 @@ fail1:
             d->hue = d->xid % ((uint8_t)((BYTE(range, 0) - BYTE(range, 1) + 256) % 256) + 1) + BYTE(range, 1);
 
         for (i = 0; i < 6; i++)
-            d->color[i%2][i/2] = ahsl2abgr(255, d->hue, BYTE(satur, i), BYTE(luma, i));
+            d->color[i%2][i/2] = hsl2rgb(d->hue, BYTE(satur, i), BYTE(luma, i));
 
         repaint = 1;
     }
