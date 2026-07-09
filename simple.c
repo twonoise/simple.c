@@ -33,6 +33,7 @@
 /*  Act, Inact:    ....A I A I A I   */
 uint64_t satur = 0x0000A000C410C400;
 uint64_t luma  = 0x0000E08060602020;
+uint32_t range = 0x801a;   /* uint16 */
 int utf        = 0;
 int ebcomp     = 8;
 int replace    = 0;
@@ -57,21 +58,24 @@ static void usage(void)
     "                            Default: %016lx\n"
     " -s, --saturation=UINT64  same, but for saturation of these colors\n"
     "                            Default: %016lx\n"
+    " -c, --colors=UINT16      from and to range of XID-depend colors.\n"
+    "                          00ff: red to violet. aa11: blue to orange.\n"
+    "                            Default: %04x\n"
     " -g, --gradient=UINT      gradient type, 0..2: None, Bayer, Truecolor\n"
     "                            Default: %d\n"
     " -e, --eb-comp=UINT       equibright compensation strength, 0..8\n"
     "                            Default: %d\n"
     " -i, --icon-pos=UINT      icon position, 0..3: None, Left, Right, Both\n"
     "                            Default: %d\n"
-    " -c, --hicontrast         reduce saturation, increase contrast\n"
+    " -t, --hicontrast         reduce saturation, increase contrast\n"
     " -n, --negate             in case if color filter inverts decoration\n"
     " -d, --hidpi              enlarge pixels as 2x2 dots\n"
     " -m, --verbose=N          message filter, 0..4. Default: %d\n",
-    program_name, luma, satur, gradient, ebcomp, icon_pos, verbose);
+    program_name, luma, satur, range, gradient, ebcomp, icon_pos, verbose);
 }
 
 static const char *shortopts =
-    "hvrl:s:g:e:i:cndm:";
+    "hvrl:s:c:g:e:i:ctndm:";
 
 static const struct option longopts[] = {
     {"help",          0, 0, 'h'},
@@ -79,9 +83,10 @@ static const struct option longopts[] = {
     {"replace",       0, 0, 'r'},
     {"luma",          1, 0, 'l'},
     {"saturation",    1, 0, 's'},
+    {"colors",        1, 0, 'c'},
     {"eb-comp",       1, 0, 'e'},
     {"icon-pos",      1, 0, 'i'},
-    {"hicontrast",    0, 0, 'c'},
+    {"hicontrast",    0, 0, 't'},
     {"negate",        0, 0, 'n'},
     {"hidpi",         0, 0, 'd'},
     {"verbose",       1, 0, 'm'},
@@ -105,10 +110,10 @@ static const struct option longopts[] = {
 #endif
 
 #define cFmt(color,S) "\e[0;3"color"m%s:\e[0m "S"\n", program_name
-#define DBV(S,...) if (verbose>3) printf(cFmt("5",S), ##__VA_ARGS__);
-#define DBG(S,...) if (verbose>2) printf(cFmt("4",S), ##__VA_ARGS__);
-#define MSG(S,...) if (verbose>1) printf(cFmt("2",S), ##__VA_ARGS__);
-#define WRN(S,...)       fprintf(stderr, cFmt("3",S), ##__VA_ARGS__);
+#define DBV(S,...) if (verbose>3) printf(cFmt("5",S), ##__VA_ARGS__)
+#define DBG(S,...) if (verbose>2) printf(cFmt("4",S), ##__VA_ARGS__)
+#define MSG(S,...) if (verbose>1) printf(cFmt("2",S), ##__VA_ARGS__)
+#define WRN(S,...)       fprintf(stderr, cFmt("3",S), ##__VA_ARGS__)
 #define ERR(S,...)     { fprintf(stderr, cFmt("1",S), ##__VA_ARGS__); exit (1); }
 
 #define MAX_TITLE_STRLEN 1024
@@ -116,7 +121,7 @@ static const struct option longopts[] = {
 typedef struct _decor
 {
     void    (*draw) (struct _decor *d);
-    XID              prop_xid;
+    XID              xid;
     int              pid;
     Window           titlebar_window; /* For mouse events */
     int              client_width;
@@ -158,6 +163,7 @@ GdkDisplay *gdkdisplay = NULL;
 GdkScreen  *gdkscreen  = NULL;
 Display    *xdisplay   = NULL;
 Window      xroot;
+WnckScreen *wnck_screen;
 
 uint8_t bayer[16][16];
 int double_click_timeout;
@@ -171,7 +177,7 @@ long int retValue = -2;
 
 static int set_decor(XID xid, int client_width, cairo_surface_t *surface, int type)
 {
-    decor_quad_t q[N_QUADS_MAX];
+    decor_quad_t q[12];
 
     decor_set_horz_quad_line (q+0, BORDER, 0, BORDER, 0, -(TITLE_H + BORDER), 0, GRAVITY_NORTH, BORDER * 2 + client_width, 0, 0, 0, 0);
     decor_set_horz_quad_line (q+3, BORDER, 0, BORDER, 0, 0, BORDER, GRAVITY_SOUTH, BORDER * 2 + client_width, 0, 0, 0, BORDER);
@@ -185,7 +191,7 @@ static int set_decor(XID xid, int client_width, cairo_surface_t *surface, int ty
     decor_quads_to_property(decor_alloc_property_data, 0, cairo_xlib_surface_get_drawable(surface), &extents, &extents, &extents, &extents, 0, 0, q, 12, 0xffffff, 0, 0);
 
     gdk_error_trap_push();
-    XChangeProperty(xdisplay, xid, type ? win_decor_atom : active_atom, XA_INTEGER, 32, PropModeReplace, (guchar *) decor_alloc_property_data, PROP_HEADER_SIZE + BASE_PROP_SIZE + QUAD_PROP_SIZE * N_QUADS_MAX);
+    XChangeProperty(xdisplay, xid, type ? win_decor_atom : active_atom, XA_INTEGER, 32, PropModeReplace, (guchar *) decor_alloc_property_data, PROP_HEADER_SIZE + BASE_PROP_SIZE + QUAD_PROP_SIZE * 12);
     return gdk_error_trap_pop();
 }
 
@@ -196,12 +202,8 @@ uint16_t k (uint8_t N, uint8_t h)
     return (uint16_t) result;
 }
 
-/*  NOTE h=0 is special one: forces not red, but gray color. Use 1 for red.  */
 uint32_t ahsl2abgr(uint8_t a, uint8_t h, uint8_t s, uint8_t l) // Full range 0..255 each
 {
-    if (h == 0)
-        s = 0;
-
     if (invert)
         l = 255 - l;
 
@@ -256,8 +258,7 @@ static void draw_window_decoration(decor_t * d)
 
     if (d->active && (gradient == 1) && (grad_w > 0))
     {
-        cairo_surface_t *gradient;
-        gradient = cairo_image_surface_create(CAIRO_FORMAT_RGB24, grad_w, GRAD_H);
+        cairo_surface_t *gradient = cairo_image_surface_create(CAIRO_FORMAT_RGB24, grad_w, GRAD_H);
         int* gradient_pixels = (int *) cairo_image_surface_get_data (gradient);
 
         /*  We need BGR24 or ABGR32, but Cairo does not offer it.  */
@@ -324,7 +325,7 @@ static void draw_window_decoration(decor_t * d)
     cairo_paint(cr);
     cairo_destroy(cr);
 
-    set_decor(d->prop_xid, d->client_width, d->surface, 1);
+    set_decor(d->xid, d->client_width, d->surface, 1);
 
     XSync(xdisplay, FALSE);
 }
@@ -496,7 +497,7 @@ fail1:
         d->p_surface[1]        = surface[1];
         d->p_buffer_surface[1] = buffer_surface[1];
 
-        d->hue = d->prop_xid % 255 + 1;
+        d->hue = d->xid % ((uint8_t)((BYTE(range, 0) - BYTE(range, 1) + 256) % 256) + 1) + BYTE(range, 1);
 
         for (i = 0; i < 6; i++)
             d->color[i%2][i/2] = ahsl2abgr(255, d->hue, BYTE(satur, i), BYTE(luma, i));
@@ -638,9 +639,9 @@ static void add_remove_frame_window(WnckWindow *win, int what)
             if (n == 0)
                 strcpy(d->process, "(unknown)");
 
-            d->prop_xid = wnck_window_get_xid(win);
+            d->xid = wnck_window_get_xid(win);
 
-            g_hash_table_insert(frame_table, GUINT_TO_POINTER(d->titlebar_window), GUINT_TO_POINTER(d->prop_xid));
+            g_hash_table_insert(frame_table, GUINT_TO_POINTER(d->titlebar_window), GUINT_TO_POINTER(d->xid));
 
             d->decorated = 1;
 
@@ -841,9 +842,9 @@ static void title_event        (WnckWindow *win, XEvent *xevent, GdkXEvent *gdkx
     if (xevent->type != ButtonPress)
         return;
 
-    if (((icon_pos & 1) && xevent->xbutton.x <= (BORDER + TITLE_H)) || /* Window Icon */
+    if (((icon_pos & 1) && xevent->xbutton.x <= (BORDER + TITLE_H)) ||
         ((icon_pos & 2) && xevent->xbutton.x >= width - (BORDER + TITLE_H)))
-        action_menu_map(win, xevent);
+        action_menu_map(win, xevent);     /* Window Icon clicked */
     else if (xevent->xbutton.button == 1)
         if (xevent->xbutton.button == last_button_num &&
             xevent->xbutton.window == last_button_xwindow &&
@@ -927,9 +928,20 @@ static void signal_handler(int sig)
     gtk_main_quit ();
 }
 
+/* It is mostly useless due to unavoidable Python ang GTK libs leaks.
+ * At regular, once per session use, these leaks are should be not a problem.
+ * But still, I am trying to be pedantically correct. Whats wrong with me. */
 static void cleanup()
 {
     MSG("Cleanup.");
+
+    GList *windows = wnck_screen ? wnck_screen_get_windows(wnck_screen) : NULL;
+    while (windows)
+    {
+        cb_window_closed(wnck_screen, windows->data);
+        windows = windows->next;
+    }
+
     free(decor_alloc_property_data);
     cairo_surface_destroy(temp_surface);
 
@@ -956,19 +968,19 @@ int main(int argc, char *argv[])
     while ((opt = getopt_long_only(argc, argv, shortopts, longopts, NULL)) != -1)
         switch (opt)
         {
+            case 'h':     usage(); return -1;
             case 'v': MSG("%s, version %s", PACKAGE, VERSION); return -1;
             case 'l':       luma = strtoull(optarg, NULL, 16); break;
             case 's':      satur = strtoull(optarg, NULL, 16); break;
+            case 'c':      range = strtoul(optarg, NULL, 16);  break;
             case 'e':     ebcomp = MIN(strtoul(optarg, NULL, 10), 8); break;
             case 'g':   gradient = MIN(strtoul(optarg, NULL, 10), 2); break;
             case 'm':    verbose = MIN(strtoul(optarg, NULL, 10), 4); break;
             case 'i':   icon_pos = MIN(strtoul(optarg, NULL, 10), 3); break;
             case 'r':    replace = 1; break;
-            case 'c': hicontrast = 1; break;
+            case 't': hicontrast = 1; break;
             case 'n':     invert = 1; break;
             case 'd':      scale = 2; break;
-            case 'h':
-                usage();
             default:
                 return -1;
         }
@@ -1069,10 +1081,10 @@ int main(int argc, char *argv[])
 
 #ifdef GTK3
     wnck_handle = wnck_handle_new(WNCK_CLIENT_TYPE_PAGER);
-    WnckScreen *wnck_screen = wnck_handle_get_default_screen(wnck_handle);
+    wnck_screen = wnck_handle_get_default_screen(wnck_handle);
 #else
     wnck_set_client_type(WNCK_CLIENT_TYPE_PAGER);
-    WnckScreen *wnck_screen = wnck_screen_get_default();
+    wnck_screen = wnck_screen_get_default();
 #endif
 
     gdk_window_add_filter(NULL, event_filter_func, NULL);
