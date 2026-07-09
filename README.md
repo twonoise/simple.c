@@ -85,11 +85,11 @@ or
 
 _
 
-    gcc -Wall -Wno-unused-result -lX11 -I/usr/include/compiz/ -ldecoration -I/usr/include/libwnck-1.0/ -lwnck-1 -I/usr/include/python3.14 -lpython3.14 `pkg-config --cflags --libs gtk+-2.0` simple.c -o /usr/local/bin/simple
+    gcc -Wall -lX11 -I/usr/include/compiz/ -ldecoration -I/usr/include/libwnck-1.0/ -lwnck-1 -I/usr/include/python3.14 -lpython3.14 `pkg-config --cflags --libs gtk+-2.0` simple.c -o /usr/local/bin/simple
 
 or
 
-    gcc -DGTK3 -Wall -Wno-unused-result -lX11 -I/usr/include/compiz/ -ldecoration -I/usr/include/libwnck-3.0/ -lwnck-3 -I/usr/include/python3.14 -lpython3.14 `pkg-config --cflags --libs gtk+-3.0` simple.c -o /usr/local/bin/simple
+    gcc -DGTK3 -Wall -lX11 -I/usr/include/compiz/ -ldecoration -I/usr/include/libwnck-3.0/ -lwnck-3 -I/usr/include/python3.14 -lpython3.14 `pkg-config --cflags --libs gtk+-3.0` simple.c -o /usr/local/bin/simple
 
 or
 
@@ -132,7 +132,7 @@ Btw, it is required for high resolution screenshots: (PrtScr or so will not work
 
 * None of Compiz's effect, except **Color filter, Negate, and Opacity**, are tested (but again, should work fine).
 
-* Xe driver work, like <br>
+* Xe driver tested, like <br>
 `efibootmgr -c -d /dev/nvme0n1 --part 1 --create --gpt -L "Arch Linux Xe" -l /vmlinuz-linux -u "root=/dev/nvme0n1p2 rw initrd=/initramfs-linux.img ipv6.disable=1  i915.force_probe="\!"4680 xe.force_probe=4680"`<br>
 `cat /proc/cmdline`<br>
 `lspci -v | grep xe`
@@ -158,6 +158,7 @@ To fix distorted (stretched) titlebar for `xterm`, check our source code for wor
 
 at `.bashrc`, but, unhappily, bash aliases are not used by `Run...` dialog of XFCE or LXQt, and non-bash aliases are not exist.
 
+> Please, report if you know how to fix bugs or leaks.
 
 LICENSE
 =======
