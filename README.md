@@ -16,7 +16,7 @@ GTK was just great until it started 3rd major version. It was great for both sma
 
 The reason why GTK was great decades ago, is same as with Ubuntu and many more others. Old software was written to be working. New one is just tries to show wow-omg effects for first 5 minutes, to find sponsors; nobody cares about bugs or memory leaks. Happily, the **Qt toolkit** is so far exception of this rule. Interestingly (but also sadly), the expensive measurement units like branded spectrum analyzers, are subjected to same trouble nowadays: these designed for salesmans now, not for real hardcore work, as before.
 
-The final point in GTK history was abandoned support of truly bitmapped, industry hardened `.bdf`/`.pcf` fonts since 2019, due to Pango 1.44. In hard competition for wow effects, and trying to support all existing writing systems and glyphs on Earth (which is not bad at all theoretically), they make huge amount of respectable and useful work, but, the bitmap fonts were dropped finally. Sadly, I've missed that moment (can't believe it's true then), and now it's too late to find required patch to revert changes.
+The final point in GTK history was abandoned support of truly bitmapped, industry hardened `.bdf`/`.pcf` fonts since 2019, due to Pango 1.44. In hard competition for wow effects, and trying to support all existing writing systems and glyphs on Earth (which is not bad at all theoretically), they make huge amount of respectable and useful work, but, the bitmap fonts were dropped finally. Sadly, I've missed that moment (can't believe it's true then), and now it's too late to find required patch to revert changes. See also [^5].
 
 Please do not tell me about `.otb` fonts, as they are buggy, and most bad that they always tend to be scaled, so not differs from `.ttf` versions of bitmap fonts; why `.otb` then? (Please wait for whole separate research and explanation of that. TODO).
 
@@ -172,9 +172,7 @@ References
 ==========
 
 [^1]: https://stackoverflow.com/questions/57911772/gtk3-gtk-menu-popup-at-pointer-without-trigger-event
-
 [^2]: https://github.com/compiz-reloaded/emerald
-
 [^3]: https://wiki.archlinux.org/title/Compiz
-
 [^4]: https://askubuntu.com/a/575473
+[^5]: https://github.com/harfbuzz/harfbuzz/issues/1897
