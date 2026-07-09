@@ -20,6 +20,7 @@
 
 #include <stdlib.h>
 #include <getopt.h>
+#include <time.h>
 #include <locale.h>
 #include <X11/Xlib.h>
 #include <X11/Xatom.h>
@@ -34,6 +35,7 @@
 uint64_t satur = 0x0000A000C410C400;
 uint64_t luma  = 0x0000E08060602020;
 uint32_t range = 0x801a;   /* uint16 */
+uint64_t dow   = 0;
 int utf        = 0;
 int ebcomp     = 8;
 int replace    = 0;
@@ -61,6 +63,8 @@ static void usage(void)
     " -c, --colors=UINT16      from and to range of XID-depend colors.\n"
     "                          00ff: red to violet. aa11: blue to orange.\n"
     "                            Default: %04x\n"
+    " -w, --dow-colors=UINT64  seven hex day-of-week depend colors.\n"
+    "                            Default: %lx\n"
     " -g, --gradient=UINT      gradient type, 0..2: None, Bayer, Truecolor\n"
     "                            Default: %d\n"
     " -e, --eb-comp=UINT       equibright compensation strength, 0..8\n"
@@ -71,11 +75,11 @@ static void usage(void)
     " -n, --negate             in case if color filter inverts decoration\n"
     " -d, --hidpi              enlarge pixels as 2x2 dots\n"
     " -m, --verbose=N          message filter, 0..4. Default: %d\n",
-    program_name, luma, satur, range, gradient, ebcomp, icon_pos, verbose);
+    program_name, luma, satur, range, dow, gradient, ebcomp, icon_pos, verbose);
 }
 
 static const char *shortopts =
-    "hvrl:s:c:g:e:i:ctndm:";
+    "hvrl:s:c:w:g:e:i:tndm:";
 
 static const struct option longopts[] = {
     {"help",          0, 0, 'h'},
@@ -84,6 +88,8 @@ static const struct option longopts[] = {
     {"luma",          1, 0, 'l'},
     {"saturation",    1, 0, 's'},
     {"colors",        1, 0, 'c'},
+    {"dow-colors",    1, 0, 'w'},
+    {"gradient",      1, 0, 'g'},
     {"eb-comp",       1, 0, 'e'},
     {"icon-pos",      1, 0, 'i'},
     {"hicontrast",    0, 0, 't'},
@@ -497,7 +503,14 @@ fail1:
         d->p_surface[1]        = surface[1];
         d->p_buffer_surface[1] = buffer_surface[1];
 
-        d->hue = d->xid % ((uint8_t)((BYTE(range, 0) - BYTE(range, 1) + 256) % 256) + 1) + BYTE(range, 1);
+        if (dow)
+        {
+            time_t t = time(NULL);
+            struct tm *tm_info = localtime(&t);
+            d->hue = BYTE(dow, tm_info->tm_wday % 8);
+        }
+        else
+            d->hue = d->xid % ((uint8_t)((BYTE(range, 0) - BYTE(range, 1) + 256) % 256) + 1) + BYTE(range, 1);
 
         for (i = 0; i < 6; i++)
             d->color[i%2][i/2] = ahsl2abgr(255, d->hue, BYTE(satur, i), BYTE(luma, i));
@@ -973,6 +986,7 @@ int main(int argc, char *argv[])
             case 'l':       luma = strtoull(optarg, NULL, 16); break;
             case 's':      satur = strtoull(optarg, NULL, 16); break;
             case 'c':      range = strtoul(optarg, NULL, 16);  break;
+            case 'w':        dow = strtoull(optarg, NULL, 16); break;
             case 'e':     ebcomp = MIN(strtoul(optarg, NULL, 10), 8); break;
             case 'g':   gradient = MIN(strtoul(optarg, NULL, 10), 2); break;
             case 'm':    verbose = MIN(strtoul(optarg, NULL, 10), 4); break;
