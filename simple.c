@@ -7,7 +7,7 @@
 #define BORDER       (1 * scale)
 #define TITLE_H      (16 * scale)
 #define GRAD_W       (256 * scale)
-#define GRAD_H       (16 * scale)
+#define GRAD_H       TITLE_H
 #define ICON_SZ      "16"        /* Popup Menu icons: 16, 24, 32, 48, scalable. */
 #define ICONS_PATH   "/root/.icons/Chicago95/actions/"ICON_SZ
 #define BDF_PCF_FONT "xos4 Terminus"  /* No .otb and non-bitmaps, please. */
@@ -60,7 +60,7 @@ static void usage(void)
     "                            Default: %016lx\n"
     " -s, --saturation=UINT64  same, but for saturation of these colors\n"
     "                            Default: %016lx\n"
-    " -c, --colors=UINT16      from and to range of XID-depend colors\n"
+    " -c, --colors=UINT16      from and to range of XID-depend colors,\n"
     "                          00ff: red to violet. aa11: blue to orange\n"
     "                            Default: %04x\n"
     " -w, --dow-colors=UINT64  seven hex day-of-week depend colors\n"
@@ -204,7 +204,7 @@ static int set_decor(XID xid, int client_width, cairo_surface_t *surface, int ty
 // NOTE Will not work with -O3 magic, only -O2 allowed.
 uint16_t k (uint8_t N, uint8_t h)
 {
-    uint32_t result = (N * 255 + (h-1) * 12) % (12*255); // N = 0 (R), 8 (G), 4 (B)
+    uint32_t result = (N * 255 + h * 12) % (12*255); // N = 0 (R), 8 (G), 4 (B)
     return (uint16_t) result;
 }
 
@@ -221,7 +221,7 @@ uint32_t hsl2rgb(uint8_t h, uint8_t s, uint8_t l) // Full range 0..255 each
 
     /* Equibright curve is hue->brightness func for fully saturate. */
     /* This should be tested on various todays display monitors as there is high variation of real perceptual brightness; then rewrite this with beziers (as they are perfectly integer/linear). */
-    int q = (MAX(50-MIN(h,255-h),0) + MAX(30-abs(h-85),0) + MAX(110-abs(h-170),0) - 20); /* Range is: -20 (yellow) to 90 (blue) */
+    int q = (MAX(48-MIN(h,255-h),0) + MAX(16-abs(h-85),0) + MAX(64-abs(h-165),0) + MAX(64-abs(h-185),0) - 10); /* Range is: -10 (yellow) to 98 (blue) */
 
     /* Decompensate the curve for not full saturation. */
     int p = q * s * MIN(l, 255 - l) * ebcomp >> 18;
@@ -266,10 +266,9 @@ static void draw_window_decoration(decor_t * d)
         cairo_surface_t *gradient = cairo_image_surface_create(CAIRO_FORMAT_RGB24, grad_w, GRAD_H);
         int* gradient_pixels = (int *) cairo_image_surface_get_data (gradient);
 
-        for (int x = 0; x < grad_w; x++)
-            for (int y = 0; y < GRAD_H; y++)
-                gradient_pixels[x + grad_w * y] =
-                d->color[d->active][x / scale >= bayer[x / scale % 16][y / scale % 16]];
+        for (int y = 0; y < GRAD_H; y++)
+            for (int x = 0; x < grad_w; x++)
+                gradient_pixels[x + grad_w * y] = d->color[d->active][x / scale >= bayer[x / scale % 16][y / scale % 16]];
 
         cairo_set_source_surface(cr, gradient, BORDER + grad_x, BORDER);
         cairo_paint(cr);
@@ -504,7 +503,7 @@ fail1:
             d->hue = BYTE(dow, tm_info->tm_wday % 8);
         }
         else
-            d->hue = d->xid % ((uint8_t)((BYTE(range, 0) - BYTE(range, 1) + 256) % 256) + 1) + BYTE(range, 1);
+            d->hue = d->xid % ((uint8_t)((BYTE(range, 0) - BYTE(range, 1) + 255) % 256) + 1) + BYTE(range, 1);
 
         for (i = 0; i < 6; i++)
             d->color[i%2][i/2] = hsl2rgb(d->hue, BYTE(satur, i), BYTE(luma, i));
