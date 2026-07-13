@@ -498,7 +498,7 @@ fail1:
             d->hue = BYTE(dow, tm_info->tm_wday % 8);
         }
         else
-            d->hue = d->xid % ((uint8_t)((BYTE(range, 0) - BYTE(range, 1) + 255) % 256) + 1) + BYTE(range, 1);
+            d->hue = d->xid % 255 % ((uint8_t)(BYTE(range, 0) - BYTE(range, 1)) + 1) + BYTE(range, 1);
 
         for (i = 0; i < 6; i++)
             d->color[i%2][i/2] = hsl2rgb(d->hue, BYTE(satur, i), BYTE(luma, i));
