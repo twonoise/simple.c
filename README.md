@@ -20,6 +20,11 @@ The final point in GTK history was abandoned support of truly bitmapped, industr
 
 Please do not tell me about `.otb` fonts, as they are buggy, and most bad that they always tend to be scaled, so not differs from `.ttf` versions of bitmap fonts; why `.otb` then? (Please wait for whole separate research and explanation of that. TODO).
 
+<img src="img/bitmap_font_with_GTK.png">
+
+_Fig. 1._ VGA .otb font [^6] with todays GTK
+
+
 At other side, we have Qt. It is rock solid thing so far, and unlike of GTK, have working important hotkeys like `Ctrl+Tab`-bing of tabs, and default button of dialog. The original DE comes with it, is too shiny and wow-omg, and can't be tuned to turn it all off and "give me back my 2007". But there is `LXQT`. While it is not popular at all, so can't expect that required panel applets like network, thermal, and CPU monitors, are can be unified and turned in more or less everyday useable form in observable future; but, there is **no problem with bitmap fonts**. There are `qt4ct`, `qt5ct`, `qt6ct` working, so no mess with theming. Furthermore, it all will work with bitmap Chicago95 icon theme, which is a requirement for science desktop, where resources are vital. The `Compiz` window manager is fully working with `LXQT`. This is vital, as it's Color filter inverts window colors (without color damage), which is strict requirement for eye health, as not all window components can be inverted using system settings:
 
 > Example: Use `qt5ct` (`qt6ct`, depends on your `QT_QPA_PLATFORMTHEME`), select **`Darker` theme**, start `Dolphin`, switch to List mode (`Ctrl+3`). This was reported multiple times, but nobody cares so far. There are myriads of bugs with dark themes. These bugs are blocking errors, when we care about eyes health.
@@ -177,3 +182,4 @@ References
 [^3]: https://wiki.archlinux.org/title/Compiz
 [^4]: https://askubuntu.com/a/575473
 [^5]: https://github.com/harfbuzz/harfbuzz/issues/1897
+[^6]: https://aur.archlinux.org/packages/univga
