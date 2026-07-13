@@ -11,6 +11,7 @@
 #define ICON_SZ      "16"        /* Popup Menu icons: 16, 24, 32, 48, scalable. */
 #define ICONS_PATH   "/root/.icons/Chicago95/actions/"ICON_SZ
 #define BDF_PCF_FONT "xos4 Terminus"  /* No .otb and non-bitmaps, please. */
+#define PYQT_VER     "6"
 #define ACTIONS      "'Mi&nimize', 'Ma&ximize', '&Restore', '&Move', 'Re&size', 'Copy &Info', '&Close'"
 #define ACT_ICONS    "'window-minimize', 'window-maximize', 'window-restore', '-', 'image-crop', 'edit-copy', 'process-stop'"
 
@@ -360,30 +361,16 @@ static int destroy_surface(gpointer data)
 
 static cairo_surface_t *create_surface(int w, int h, int type)
 {
-    DBG("create_surface() %d %d", w, h);
-    cairo_surface_t *surface;
+    DBG("create_surface() %d %d %s", w, h, type ? "XLib" : "Image");
 
     if (w <= 0 || h <= 0)
         return NULL;
 
-    if (type)
-    {
-        DBG(" XLib");
 #ifdef GTK3
-        surface = gdk_window_create_similar_surface(WIN_POPUP, CAIRO_CONTENT_COLOR_ALPHA, w, h);
+        cairo_surface_t *surface = type ? gdk_window_create_similar_surface(WIN_POPUP, CAIRO_CONTENT_COLOR_ALPHA, w, h) : gdk_window_create_similar_image_surface(WIN_POPUP, CAIRO_FORMAT_ARGB32, w, h, 0);
 #else
-        surface = gdk_window_create_similar_surface(WIN_POPUP, CAIRO_CONTENT_COLOR_ALPHA, w, h + 1); /* BUG One extra pixel for GDK2 only, looks like critical bug. */
+        cairo_surface_t *surface = type ? gdk_window_create_similar_surface(WIN_POPUP, CAIRO_CONTENT_COLOR_ALPHA, w, h + 1) /* BUG One extra pixel for GDK2 only, looks like critical bug. */ : cairo_image_surface_create(CAIRO_FORMAT_ARGB32, w, h);
 #endif
-    }
-    else
-    {
-        DBG(" Image");
-#ifdef GTK3
-        surface = gdk_window_create_similar_image_surface(WIN_POPUP, CAIRO_FORMAT_ARGB32, w, h, 0);
-#else
-        surface = cairo_image_surface_create(CAIRO_FORMAT_ARGB32, w, h);
-#endif
-    }
 
     if ((surface) && (cairo_surface_get_reference_count(surface) > 0) && (cairo_surface_status(surface) == CAIRO_STATUS_SUCCESS))
         return surface;
@@ -732,7 +719,7 @@ static int cb_window_closed(WnckScreen * screen, WnckWindow *win)
     return gdk_error_trap_pop();
 }
 
-static void move_resize_restack_window(WnckWindow * win, Atom atom, int l0, int l1, int l2, int l3, int l4, guint32 time)
+static void move_resize_restack_window(WnckWindow * win, Atom atom, int l0, int l1, int l2, int l3, int l4)
 {
     XEvent ev;
 
@@ -751,12 +738,6 @@ static void move_resize_restack_window(WnckWindow * win, Atom atom, int l0, int 
     ev.xclient.data.l[2] = l2;
     ev.xclient.data.l[3] = l3;
     ev.xclient.data.l[4] = l4;
-
-    if (time)
-    {
-        XUngrabPointer (xdisplay, (Time) time);
-        XUngrabKeyboard(xdisplay, (Time) time);
-    }
 
     XSendEvent(xdisplay, xroot, FALSE, SubstructureRedirectMask | SubstructureNotifyMask, &ev);
 
@@ -862,8 +843,11 @@ static void title_event        (WnckWindow *win, XEvent *xevent, GdkXEvent *gdkx
             last_button_xwindow = xevent->xbutton.window;
             last_button_time = xevent->xbutton.time;
 
-            move_resize_restack_window(win, restack_window_atom, 2, None, Above, 0, 0, 0);
-            move_resize_restack_window(win, wm_move_resize_atom, xevent->xbutton.x_root, xevent->xbutton.y_root, 8, xevent->xbutton.button, 1, xevent->xbutton.time); // 8 is (_NET_)WM_MOVERESIZE_MOVE
+            XUngrabPointer (xdisplay, xevent->xbutton.time);
+            XUngrabKeyboard(xdisplay, xevent->xbutton.time);
+
+            move_resize_restack_window(win, restack_window_atom, 2, None, Above, 0, 0);
+            move_resize_restack_window(win, wm_move_resize_atom, xevent->xbutton.x_root, xevent->xbutton.y_root, 8, xevent->xbutton.button, 1); // 8 is (_NET_)WM_MOVERESIZE_MOVE
         }
     else if (xevent->xbutton.button == 2)
         WNCK_MAX_UNMAX;
@@ -1002,9 +986,9 @@ int main(int argc, char *argv[])
     Py_Initialize();
 
     const char PyMenuSrc[] =
-        "from PyQt6.QtCore import QPoint\n"
-        "from PyQt6.QtWidgets import QApplication, QMenu\n"
-        "from PyQt6.QtGui import QIcon\n"
+        "from PyQt"PYQT_VER".QtCore import QPoint\n"
+        "from PyQt"PYQT_VER".QtWidgets import QApplication, QMenu\n"
+        "from PyQt"PYQT_VER".QtGui import QIcon\n"
         "app = QApplication([])\n"
         "def windowActionsMenu(x, y):\n"
         "  q = 7\n"
