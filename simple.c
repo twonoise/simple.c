@@ -202,12 +202,6 @@ static int set_decor(XID xid, int client_width, cairo_surface_t *surface, int ty
 }
 
 // NOTE Will not work with -O3 magic, only -O2 allowed.
-uint16_t k (uint8_t N, uint8_t h)
-{
-    uint32_t result = (N * 255 + h * 12) % (12*255); // N = 0 (R), 8 (G), 4 (B)
-    return (uint16_t) result;
-}
-
 uint32_t hsl2rgb(uint8_t h, uint8_t s, uint8_t l) // Full range 0..255 each
 {
     if (invert)
@@ -226,14 +220,15 @@ uint32_t hsl2rgb(uint8_t h, uint8_t s, uint8_t l) // Full range 0..255 each
     /* Decompensate the curve for not full saturation. */
     int p = q * s * MIN(l, 255 - l) * ebcomp >> 18;
 
-    l = MIN(255, (l + p)); /* Hope we never overflow uint8 here? */
-    s = MAX(  0, (s - p));
+    l = l + p; /* Hope we never        */
+    s = s - p; /* overflow uint8 here? */
 
-    uint16_t A = (s * MIN(l, 255 - l) * 259) >> 8;
+    uint16_t A = s * MIN(l, 255 - l);
 
-    #define f(N) (uint8_t) ((l * (255*255) - A * MAX(MIN(MIN(k(N, h) - 3*255, 9*255 - k(N, h)), 255), -255)) / (255*255))
+    #define k(N, h) (uint16_t) ((N * 255 + h * 12) % (12 * 255))
+    #define f(N) (uint8_t) (((l << 16) - A * MAX(MIN(MIN(k(N, h) - 3*255, 9*255 - k(N, h)), 256), -256)) >> 16)
 
-    uint32_t result = (((f(0) << 8) + f(8)) << 8) + f(4);
+    uint32_t result = s ? (((f(0) << 8) + f(8)) << 8) + f(4) : (l << 16) + (l << 8) + l;
 
     DBV("%x %x %x -> %d %x", h, s, l, p, result);
 
