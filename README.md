@@ -90,11 +90,11 @@ or
 
 _
 
-    gcc -Wall -lX11 -I/usr/include/compiz/ -ldecoration -I/usr/include/libwnck-1.0/ -lwnck-1 -I/usr/include/python3.14 -lpython3.14 `pkg-config --cflags --libs gtk+-2.0` simple.c -o /usr/local/bin/simple
+    gcc -Wall -O2 -ldecoration -lpython3.14 `pkg-config --cflags --libs gtk+-2.0 python3 libwnck-1.0 compiz` simple.c -o /usr/local/bin/simple
 
 or
 
-    gcc -DGTK3 -Wall -lX11 -I/usr/include/compiz/ -ldecoration -I/usr/include/libwnck-3.0/ -lwnck-3 -I/usr/include/python3.14 -lpython3.14 `pkg-config --cflags --libs gtk+-3.0` simple.c -o /usr/local/bin/simple
+    gcc -DGTK3 -Wall -O2 -ldecoration -lpython3.14 `pkg-config --cflags --libs gtk+-3.0 python3 libwnck-3.0 compiz` simple.c -o /usr/local/bin/simple
 
 or
 
