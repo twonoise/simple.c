@@ -59,9 +59,9 @@ It's all available in one C file, with minimal possible deps, and file sizes les
 Compile
 =======
 
-* Install `Terminus` font, or other truly bitmap `.bdf`/`.pcf` fonts. Note that Terminus can be named `Terminus` on one system, and `xos4 Terminus` on another, so **correct the font name at our C code first**. Use `fc-list | grep erminus` to check. As Terminus package brings `.otb` versions also, be sure to delete these.
+* Install `Terminus` font, or other truly bitmap `.bdf`/`.pcf` fonts. Note that Terminus can be named `Terminus` on one system, and `xos4 Terminus` on another. Use `fc-list | grep erminus` to check. As Terminus package brings `.otb` versions also, **be sure to delete these**.
 
-* Use both `qt5ct` and `qt6ct` to select `(xos4) Terminus`:
+* Use both `qt5ct` and `qt6ct` to select `(xos4) Terminus`, as well as, check both _not_ to have Dark theme selected:
   
 > Btw, note that this exactly font **does not exist** at GTK's programs font selection menus.
   
@@ -71,12 +71,11 @@ Compile
    
 Then check system-wide effects on Qt software like LXQt itself. Note that one should have `QT_QPA_PLATFORMTHEME=qt_ct` at `/etc/environment`, so select your preferable QtX here for system-wide. 
 
+* (_Recommended_) Install Chicago95 theme; we need icons only from it. 
 
-* (_optional_) Install Chicago95 theme; we need icons only from it. Then correct icons path at C code.
+* Install the toolkits:
 
-* Replace `PyQt6` to `PyQt5` if need. Install the toolkit:
-
-    `pacman -S python-pyqt_`
+    `pacman -S python-pyqt5 python-pyqt6`
 
 * Install other requirements. For `wnck`, it differs for GTK2 and GTK3:
 
