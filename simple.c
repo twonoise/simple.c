@@ -1,3 +1,8 @@
+/*
+ * gcc -DGTK3 -Wall -O2 -ldecoration -lpython3.14 `pkg-config --cflags --libs gtk+-3.0 python3 libwnck-3.0 compiz` simple.c
+ *
+ *        gcc -Wall -O2 -ldecoration -lpython3.14 `pkg-config --cflags --libs gtk+-2.0 python3 libwnck-1.0 compiz` simple.c
+ */
 
 /* Std: C99. Based on: Emerald, Copyright 2006 Novell, Inc., License: GPL2+ */
 
@@ -8,12 +13,6 @@
 #define TITLE_H      (16 * scale)
 #define GRAD_W       (256 * scale)
 #define GRAD_H       TITLE_H
-#define ICON_SZ      "16"        /* Popup Menu icons: 16, 24, 32, 48, scalable. */
-#define ICONS_PATH   "/root/.icons/Chicago95/actions/"ICON_SZ
-#define BDF_PCF_FONT "xos4 Terminus"  /* No .otb and non-bitmaps, please. */
-#define PYQT_VER     "6"
-#define ACTIONS      "'Mi&nimize', 'Ma&ximize', '&Restore', '&Move', 'Re&size', 'Copy &Info', '&Close'"
-#define ACT_ICONS    "'window-minimize', 'window-maximize', 'window-restore', '-', 'image-crop', 'edit-copy', 'process-stop'"
 
 // Huge memory leak is unavoidable. https://github.com/python/cpython/issues/100773
 // Total 2,95 Mb PyQt5 and 1,76 Mb PyQt6!
@@ -43,44 +42,46 @@ int replace    = 0;
 int gradient   = 1;
 int hicontrast = 0;
 int scale      = 1;
+int qt_ver     = 5;
 int invert     = 0;
 int icon_pos   = 1;
+int bold       = 0;
 int verbose    = 2;
+char bdf_pcf_font[64] = "xos4 Terminus";  /* No .otb and non-bitmaps, please. */
+char actions[512] = "'Mi&nimize', 'Ma&ximize', '&Restore', '&Move', 'Re&size', 'Copy &Info', '&Close'";
 
-char *program_name;
-
-static void usage(void)
-{
-    printf("%s is simple, pixel-perfect window decorator for Compiz 0.8.18, 0.9.14.2\n"
-    "options:\n"
-    " -h, --help               print help\n"
-    " -v, --version            print version\n"
-    " -r, --replace            try to replace current window decorator, if any\n"
-    " -l, --luma=UINT64        4 paired hex luma values for active & inactive state:\n"
-    "                          Reserved, Bright, Normal, Dark color\n"
-    "                            Default: %016lx\n"
-    " -s, --saturation=UINT64  same, but for saturation of these colors\n"
-    "                            Default: %016lx\n"
-    " -c, --colors=UINT16      from and to range of XID-depend colors,\n"
-    "                          00ff: red to violet. aa11: blue to orange\n"
-    "                            Default: %04x\n"
-    " -w, --dow-colors=UINT64  seven hex day-of-week depend colors\n"
-    "                            Default: %lx\n"
-    " -g, --gradient=N         gradient type, 0..2: None, Bayer, Truecolor\n"
-    "                            Default: %d\n"
-    " -e, --eb-comp=N          equibright compensation strength, 0..8\n"
-    "                            Default: %d\n"
-    " -i, --icon-pos=N         icon position, 0..3: None, Left, Right, Both\n"
-    "                            Default: %d\n"
-    " -t, --hicontrast         reduce saturation, increase contrast\n"
-    " -n, --negate             in case if color filter inverts decoration\n"
-    " -d, --hidpi              enlarge pixels as 2x2 dots\n"
-    " -m, --verbose=N          message filter, 0..4. Default: %d\n",
-    program_name, luma, satur, range, dow, gradient, ebcomp, icon_pos, verbose);
-}
+#define USAGE "\
+is simple, pixel-perfect window decorator for Compiz 0.8.18, 0.9.14.2\n\
+Usage: [QT_QPA_PLATFORMTHEME=_] [QT_SCALE_FACTOR=_] %s [options]\n\
+Options:\n\
+ -h, --help               print help\n\
+ -v, --version            print version\n\
+ -r, --replace            try to replace current window decorator, if any\n\
+ -l, --luma=UINT64        4 paired hex luma values for active & inactive state:\n\
+                          Reserved, Bright, Normal, Dark color\n\
+                            Default: %016lx\n\
+ -s, --saturation=UINT64  same, but for saturation of these colors\n\
+                            Default: %016lx\n\
+ -c, --colors=UINT16      from and to range of XID-depend colors,\n\
+                          00ff: red to violet. aa11: blue to orange\n\
+                            Default: %04x\n\
+ -w, --dow-colors=UINT64  seven hex day-of-week depend colors\n\
+                            Default: %lx\n\
+ -g, --gradient=N         gradient type, 0..2: None, Bayer, Truecolor\n\
+                            Default: %d\n\
+ -e, --eb-comp=N          equibright compensation strength, 0..8\n\
+                            Default: %d\n\
+ -i, --icon-pos=N         icon position, 0..3: None, Left, Right, Both\n\
+                            Default: %d\n\
+ -t, --hicontrast         reduce saturation, increase contrast\n\
+ -n, --negate             in case if color filter inverts decoration\n\
+ -a, --actions=STR        translate or rename actions or its hotkeys.\n\
+                            Default: \"%s\"\n\
+ -b, --bold               bold title font. Menu font is set via 'qtXct'.\n\
+ -m, --verbose=N          message filter, 0..4. Default: %d"
 
 static const char *shortopts =
-    "hvrl:s:c:w:g:e:i:tndm:";
+    "hvrl:s:c:w:g:e:i:tna:bm:";
 
 static const struct option longopts[] = {
     {"help",          0, 0, 'h'},
@@ -95,7 +96,8 @@ static const struct option longopts[] = {
     {"icon-pos",      1, 0, 'i'},
     {"hicontrast",    0, 0, 't'},
     {"negate",        0, 0, 'n'},
-    {"hidpi",         0, 0, 'd'},
+    {"actions",       1, 0, 'a'},
+    {"bold",          0, 0, 'b'},
     {"verbose",       1, 0, 'm'},
     {0, 0, 0, 0}
 };
@@ -115,6 +117,8 @@ static const struct option longopts[] = {
     #include <gtk-2.0/gtk/gtk.h>  // -I/usr/include/gtk-2.0/
     #include <libwnck/libwnck.h>
 #endif
+
+char *program_name;
 
 #define cFmt(color,S) "\e[0;3"color"m%s:\e[0m "S"\n", program_name
 #define DBV(S,...) if (verbose>3) printf(cFmt("5",S), ##__VA_ARGS__)
@@ -178,6 +182,8 @@ cairo_surface_t *temp_surface;
 
 PyObject *pArgs, *pFunc = NULL;
 long int retValue = -2;
+char str[MAX_TITLE_STRLEN + PATH_MAX + 16];
+char* pos;
 
 #define FIT(x, min, max) (x < min ? min : x > max ? max : x)
 #define BYTE(x, n) (((uint8_t *)&x)[n])
@@ -279,7 +285,7 @@ static void draw_window_decoration(decor_t * d)
     cairo_fill(cr);
     cairo_pattern_destroy(pat);
 
-    cairo_select_font_face(cr, BDF_PCF_FONT, CAIRO_FONT_SLANT_NORMAL, CAIRO_FONT_WEIGHT_BOLD);
+    cairo_select_font_face(cr, bdf_pcf_font, CAIRO_FONT_SLANT_NORMAL, bold ? CAIRO_FONT_WEIGHT_BOLD : CAIRO_FONT_WEIGHT_NORMAL);
     cairo_set_font_size(cr, TITLE_H);
 
     if ((d->active) && ((d->title_glyphs * (TITLE_H/2) + icon_w(1) + icon_w(2) + BORDER) > grad_x))
@@ -800,7 +806,6 @@ static void action_menu_map(WnckWindow *win, XEvent *xevent)
             break;
         case 5:
             Dd;
-            char str[MAX_TITLE_STRLEN + PATH_MAX + 16];
             sprintf(str, "%s\n%s\npid: %d\n", d->title, d->process, d->pid);
             GtkClipboard* clipboard = gtk_clipboard_get(GDK_SELECTION_CLIPBOARD);
             gtk_clipboard_set_text(clipboard, str, -1);
@@ -907,6 +912,23 @@ static GdkFilterReturn event_filter_func(GdkXEvent * gdkxevent, GdkEvent * event
     return GDK_FILTER_CONTINUE;
 }
 
+unsigned int getenv_select(char* var, char* list8)
+{
+    char* var_value = getenv(var);
+    if (var_value)
+    {
+        if ((pos = strstr(list8, var_value)))
+        {
+            DBG("%s is supported: %s", var, var_value);
+            return ((pos - list8) / 8 + 1);
+        }
+        WRN("This %s is not supported: %s;\n Supported are: %s", var, var_value, list8);
+    }
+    else
+        DBG("%s not found.", var);
+    return 0;
+}
+
 static void signal_handler(int sig)
 {
     WRN("Signal received. Will quit.");
@@ -953,7 +975,7 @@ int main(int argc, char *argv[])
     while ((opt = getopt_long_only(argc, argv, shortopts, longopts, NULL)) != -1)
         switch (opt)
         {
-            case 'h':     usage(); return -1;
+            case 'h': MSG(USAGE, program_name, luma, satur, range, dow, gradient, ebcomp, icon_pos, actions, verbose); return -1;
             case 'v': MSG("%s, version %s", PACKAGE, VERSION); return -1;
             case 'l':       luma = strtoull(optarg, NULL, 16); break;
             case 's':      satur = strtoull(optarg, NULL, 16); break;
@@ -966,7 +988,8 @@ int main(int argc, char *argv[])
             case 'r':    replace = 1; break;
             case 't': hicontrast = 1; break;
             case 'n':     invert = 1; break;
-            case 'd':      scale = 2; break;
+            case 'b':       bold = 1; break;
+            case 'a':      strncpy(actions, optarg, sizeof actions - 1); break;
             default:
                 return -1;
         }
@@ -981,34 +1004,58 @@ int main(int argc, char *argv[])
             WRN("LC_MESSAGES set to single-byte: '%s'", locale);
     }
 
+    opt = getenv_select("QT_SCALE_FACTOR", "1       2       3       1.5");
+    scale = opt ? ((opt == 4) ? 2 : opt) : 1; /* FIXME 4 will be 1.5 in future TODO */
+
+    opt = getenv_select("QT_QPA_PLATFORMTHEME", "qt5ct   qt6ct");
+    qt_ver = opt ? opt + 4 : 6;
+
+    sprintf(str, "%s/.config/qt%dct/qt%dct.conf", getenv("HOME"), qt_ver, qt_ver);
+    DBG("Qt config file is: '%s'", str);
+    FILE *file = fopen(str, "r");
+    if (file) {
+        pos = NULL;
+        while (fgets(str, sizeof(str), file) && (! pos))
+            if ((strlen(str) > 16) && (strstr(str, "general=\"")))
+                if ((pos = strchr(str + 9, ',')))
+                    strlcpy(bdf_pcf_font, str + 9, pos - (str + 9) + 1);
+        fclose(file);
+    }
+    DBG("Font name is: '%s'", bdf_pcf_font);
+
     atexit(cleanup);
 
     Py_Initialize();
 
-    const char PyMenuSrc[] =
-        "from PyQt"PYQT_VER".QtCore import QPoint\n"
-        "from PyQt"PYQT_VER".QtWidgets import QApplication, QMenu\n"
-        "from PyQt"PYQT_VER".QtGui import QIcon\n"
+    char PyMenuPrototype[] =
+        "from PyQt%d.QtCore import QPoint\n"
+        "from PyQt%d.QtWidgets import QApplication, QMenu\n"
+        "from PyQt%d.QtGui import QIcon, QImage, QPixmap\n"
         "app = QApplication([])\n"
+        "q = 7\n"
+        "a = [0]*q\n"
+        "m = QMenu()\n"
+        "for i in range(q):\n"
+        "  u = []\n"
+        "  c = 0\n"
+        "  for b in ['z0z0P888d', 'c:6:61816181618161816181618161816:c', 'e88881616811681161611161636161816188e', 'K191438225373192419151?181?151914291373522834191K', 'C29142813<4<625362411262312262213262114263526<4<<2>2C', 'Q6:1429141118112174151423115411121511214111571115115111771711511717179@', 'S18153635343732396;4<4;69323734353635181S'][i]:\n" // hexdump -ve '1/1 "%u,"' 16x16.rle
+        "    u += [c] * (ord(b) - 48)\n"
+        "    c = c ^ 1\n"
+        "  img = QImage(bytearray(u), 16, 16, QImage.Format.Format_Indexed8)\n"
+        "  img.setColorTable([0, 0xff3f3f3f])\n" // Palette for white theme, will be inverted by Compiz. Note Alpha component.
+        "  a[i] = m.addAction(QIcon(QPixmap.fromImage(img)), [%s][i])\n"
+        "  if i == q - 2:\n"
+        "    m.addSeparator()\n"
         "def windowActionsMenu(x, y):\n"
-        "  q = 7\n"
-        "  n = ["ACTIONS"]\n"
-        "  p = ["ACT_ICONS"]\n"
-        "  m = QMenu()\n"
         "  r = -1\n"
-        "  a = [0]*q\n"
-        "  for i in range(q):\n"
-        "    a[i] = m.addAction(QIcon('"ICONS_PATH"/'+p[i]+'.png'), n[i])\n"
-        "    if i == q - 2:\n"
-        "      m.addSeparator()\n"
-        "  d = m.exec(QPoint (x, y))\n"
+        "  d = m.exec(QPoint(x, y))\n"
         "  for i in range(q):\n"
         "    if d == a[i]:\n"
         "      r = i\n"
         "      break\n"
-        "  del a\n"
-        "  del m\n"
         "  return r\n" ;
+    char PyMenuSrc[2048] = "";
+    snprintf(PyMenuSrc, sizeof PyMenuSrc, PyMenuPrototype, qt_ver, qt_ver, qt_ver, actions);
 
     pFunc = PyObject_GetAttrString(PyImport_ExecCodeModule("", Py_CompileString(PyMenuSrc, "", Py_file_input)), "windowActionsMenu"); // https://stackoverflow.com/a/56563704
 
