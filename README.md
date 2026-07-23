@@ -79,25 +79,17 @@ Then check system-wide effects on Qt software like LXQt itself. Note that one sh
 
 * Install other requirements. For `wnck`, it differs for GTK2 and GTK3:
 
-    `yay -S libwnck`
-
-or
-
-    pacman -S libwnck3
+    `yay -S libwnck` <br>
+    or <br>
+    `pacman -S libwnck3`
 
 * Compile:
 
-_
-
-    gcc -Wall -O2 -ldecoration -lpython3.14 `pkg-config --cflags --libs gtk+-2.0 python3 libwnck-1.0 compiz` simple.c -o /usr/local/bin/simple
-
-or
-
-    gcc -DGTK3 -Wall -O2 -ldecoration -lpython3.14 `pkg-config --cflags --libs gtk+-3.0 python3 libwnck-3.0 compiz` simple.c -o /usr/local/bin/simple
-
-or
-
-    clang ...
+    ``gcc -Wall -O2 -ldecoration -lpython3.14 `pkg-config --cflags --libs gtk+-2.0 python3 libwnck-1.0 compiz` simple.c -o /usr/local/bin/simple`` <br>
+    or <br>
+    ``gcc -DGTK3 -Wall -O2 -ldecoration -lpython3.14 `pkg-config --cflags --libs gtk+-3.0 python3 libwnck-3.0 compiz` simple.c -o /usr/local/bin/simple`` <br>
+    or <br>
+    `clang ...`
 
 Note that, if we expand `pkg-config...`, we will see the Pango use; but it is not required and not used, and most probably, does not increase binary size.
 
@@ -112,7 +104,8 @@ Install compiz and ccsm:
 
 Then try
 
-    ./simple --replace
+    simple -h
+    simple --replace
 
 And if it works, start `ccsm`, find "Window Decoration", "Command", use "exec /usr/local/bin/simple". Note that Compiz then can be used by LXDE directly: Main Menu, LXQt settings, Session settings, X11 settings, Window manager: `/usr/bin/compiz` .
 
